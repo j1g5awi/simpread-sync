@@ -79,9 +79,11 @@ func configHandle(w http.ResponseWriter, r *http.Request, path string) {
 }
 
 func main() {
-	path := os.Args[1]
-	if path == "" {
+	var path string
+	if len(os.Args) < 2 {
 		path = "simpread_config.json"
+	} else {
+		path = os.Args[1]
 	}
 	log.Println("config file path:", path)
 
