@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"runtime"
 
 	"io/ioutil"
 	"log"
@@ -256,7 +257,11 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	cmd := exec.Command("pandoc", title+"."+in, "-o", filepath.Join(config.outputPath, title+"."+out))
+	pandoc := "pandoc"
+	if runtime.GOOS == "darwin" {
+		pandoc = "/usr/local/bin/pandoc"
+	}
+	cmd := exec.Command(pandoc, title+"."+in, "-o", filepath.Join(config.outputPath, title+"."+out))
 
 	err = cmd.Start()
 	if err != nil {
