@@ -1,0 +1,53 @@
+env:
+  - GO111MODULE=on
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - id: nowin
+    binary: simpread-sync
+    env:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+    goos:
+      - linux
+      - darwin
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+  - id: win
+    binary: simpread-sync
+    env:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+    goos:
+      - windows
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+archives:
+  - id: win
+    builds:
+      - win
+    name_template: "simpread-sync_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    format_overrides:
+      - goos: windows
+        format: binary
+  - id: nowin
+    builds:
+      - nowin
+      - win
+    name_template: "simpread-sync_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+checksum:
+  name_template: "checksums.txt"
+release:
+  github:
+    owner: j1g5awi
+    name: simpread-sync
+changelog:
+  skip: true
