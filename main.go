@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 
 	"io/ioutil"
 	"log"
@@ -56,6 +57,9 @@ func initConfig(path string) *Config {
 	if config.title == "" {
 		config.title = "[简悦] - %s"
 	}
+	if config.syncPath != "" && config.outputPath == "" {
+		config.outputPath = filepath.Join(config.syncPath, "output")
+	}
 
 	log.Println("init config")
 
@@ -92,40 +96,56 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 // 剩余情况下，返回一个 key 为 result 的 json
 func configHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-
-	err := r.ParseForm()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if data := r.Form.Get("config"); data != "" {
-		err := ioutil.WriteFile(filepath.Join(config.syncPath, "simpread_config.json"), []byte(data), 644)
+	if config.syncPath != "" {
+		err := r.ParseForm()
 		if err != nil {
 			log.Fatal(err)
 		}
+		if data := r.Form.Get("config"); data != "" {
+			err := ioutil.WriteFile(filepath.Join(config.syncPath, "simpread_config.json"), []byte(data), 644)
+			if err != nil {
+				log.Fatal(err)
+			}
 
-		result, err := json.Marshal(struct {
-			Status int `json:"status"`
-		}{Status: 200})
-		if err != nil {
-			log.Fatal(err)
-		}
+			result, err := json.Marshal(struct {
+				Status int `json:"status"`
+			}{Status: 200})
+			if err != nil {
+				log.Fatal(err)
+			}
 
-		_, err = w.Write(result)
-		if err != nil {
-			log.Fatal(err)
+			_, err = w.Write(result)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println("sync config from browser")
+		} else {
+			config, err := ioutil.ReadFile(filepath.Join(config.syncPath, "simpread_config.json"))
+			if err != nil {
+				log.Fatal(err)
+			}
+			result, err := json.Marshal(struct {
+				Status int    `json:"status"`
+				Result string `json:"result"`
+			}{
+				Status: 200,
+				Result: string(config),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			_, err = w.Write(result)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println("sync config from local")
 		}
-		log.Println("sync config from browser")
 	} else {
-		config, err := ioutil.ReadFile(filepath.Join(config.syncPath, "simpread_config.json"))
-		if err != nil {
-			log.Fatal(err)
-		}
 		result, err := json.Marshal(struct {
-			Status int    `json:"status"`
-			Result string `json:"result"`
+			Status string `json:"status"`
 		}{
-			Status: 200,
-			Result: string(config),
+			Status: "error",
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -135,7 +155,7 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println("sync config from local")
+		log.Fatal("Please set syncPath first !")
 	}
 }
 
@@ -220,6 +240,50 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("send mail: %s\n", title)
 }
 
+func convertHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	err := r.ParseForm()
+	if err != nil {
+		log.Fatal(err)
+	}
+	title := r.Form.Get("title")
+	content := r.Form.Get("content")
+	in := r.Form.Get("in")   //md
+	out := r.Form.Get("out") //epub
+
+	err = ioutil.WriteFile(title+"."+in, []byte(content), 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cmd := exec.Command("pandoc", title+"."+in, "-o", filepath.Join(config.outputPath, title+"."+out))
+
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	os.Remove(title + "." + in)
+
+	result, err := json.Marshal(struct {
+		Status int `json:"status"`
+	}{Status: 200})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("convert file: %s\n", title)
+}
+
 var config *Config
 
 func main() {
@@ -235,6 +299,7 @@ func main() {
 	http.HandleFunc("/config", configHandle)
 	http.HandleFunc("/plain", plainHandle)
 	http.HandleFunc("/mail", mailHandle)
+	http.HandleFunc("/convert", convertHandle)
 
 	err := http.ListenAndServe(fmt.Sprint(":", config.port), nil)
 	if err != nil {
