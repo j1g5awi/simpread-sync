@@ -53,11 +53,8 @@ func initConfig(path string) *Config {
 	if config.port == 0 {
 		config.port = 7026
 	}
-	if config.smtpPort == 0 {
-		config.smtpPort = 465
-	}
 	if config.title == "" {
-		config.title = "[简悦] - %s"
+		config.title = "[简悦] - {{ title }}"
 	}
 	if config.syncPath != "" && config.outputPath == "" {
 		config.outputPath = filepath.Join(config.syncPath, "output")
@@ -196,7 +193,8 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	title := r.Form.Get("title")
+	// 这里偷懒直接替换文本
+	title := strings.ReplaceAll(config.title, "{{ title }}", r.Form.Get("title"))
 	content := r.Form.Get("content")
 	attach := r.Form.Get("attach")
 

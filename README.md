@@ -12,8 +12,11 @@
   - [x] epub
   - [x] 邮件
   - [x] Kindle
+- 稍后读加载本地文件
 
 由于每次自动同步时都直接读取本地文件然后返回，文件大了可能会有性能问题。
+
+稍后读设置里请不要勾选「使用简悦 · 同步助手内置的解析器」，此功能无法实现。
 
 ## Usage
 
@@ -32,9 +35,9 @@ config.json 默认配置如下，`syncPath` 必须填写，否则无法自动同
     "port": 7026,
     "syncPath": "",
     "outputPath": "",
-    "title": "[简悦] - %s",
+    "title": "[简悦] - {{ title }}",
     "smtpHost": "",
-    "smtpPort": 465,
+    "smtpPort": 0,
     "username": "",
     "password": "",
     "receiverMail": "",
