@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -361,6 +362,28 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func proxyHandle(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Println("proxy error: ", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		log.Println("proxy error: ", err)
+		return
+	}
+}
+
 var config *Config
 
 func main() {
@@ -378,6 +401,7 @@ func main() {
 	http.HandleFunc("/mail", mailHandle)
 	http.HandleFunc("/convert", convertHandle)
 	http.HandleFunc("/reading/", readingHandle)
+	http.HandleFunc("/proxy", proxyHandle)
 
 	err := http.ListenAndServe(fmt.Sprint(":", config.port), nil)
 	if err != nil {
