@@ -4,66 +4,105 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
-	"runtime"
-	"strings"
-
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
-	"github.com/valyala/fastjson"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"gopkg.in/gomail.v2"
 )
 
-type Config struct {
+var (
+	configFile   string
 	port         int
 	syncPath     string
 	outputPath   string
 	smtpHost     string
 	smtpPort     int
-	username     string
-	password     string
+	smtpUsername string
+	smtpPassword string
+	mailTitle    string
 	receiverMail string
-	title        string
 	kindleMail   string
+)
+
+var rootCmd = &cobra.Command{
+	Use: "simpread-sync",
+	Run: func(cmd *cobra.Command, args []string) {
+		http.HandleFunc("/verify", verifyHandle)
+		http.HandleFunc("/config", configHandle)
+		http.HandleFunc("/plain", plainHandle)
+		http.HandleFunc("/mail", mailHandle)
+		http.HandleFunc("/convert", convertHandle)
+		http.HandleFunc("/reading/", readingHandle)
+		http.HandleFunc("/proxy", proxyHandle)
+
+		err := http.ListenAndServe(fmt.Sprint(":", port), nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	},
 }
 
-func initConfig(path string) *Config {
+func init() {
+	cobra.OnInitialize(initConfig)
 
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Fatal(err)
+	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "config file")
+	rootCmd.Flags().IntVarP(&port, "port", "p", 7026, "port")
+	rootCmd.Flags().StringVar(&syncPath, "sync-path", "", "sync path")
+	rootCmd.Flags().StringVar(&outputPath, "output-path", "", "output path")
+	rootCmd.Flags().StringVar(&smtpHost, "smtp-host", "", "smtp host")
+	rootCmd.Flags().IntVar(&smtpPort, "smtp-port", 465, "smtp port")
+	rootCmd.Flags().StringVar(&smtpUsername, "smtp-username", "", "smtp username")
+	rootCmd.Flags().StringVar(&smtpPassword, "smtp-password", "", "smtp password")
+	rootCmd.Flags().StringVar(&mailTitle, "mail-title", "[简悦] - {{ title }}", "mail title")
+	rootCmd.Flags().StringVar(&receiverMail, "receiver-mail", "", "receiver mail")
+	rootCmd.Flags().StringVar(&kindleMail, "kindle-mail", "", "kindle mail")
+
+	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
+	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
+	viper.BindPFlag("outputPath", rootCmd.Flags().Lookup("output-path"))
+	viper.BindPFlag("smtpHost", rootCmd.Flags().Lookup("smtp-host"))
+	viper.BindPFlag("smtpPort", rootCmd.Flags().Lookup("smtp-port"))
+	viper.BindPFlag("smtpUsername", rootCmd.Flags().Lookup("smtp-username"))
+	viper.BindPFlag("smtpPassword", rootCmd.Flags().Lookup("smtp-password"))
+	viper.BindPFlag("mailTitle", rootCmd.Flags().Lookup("mail-title"))
+	viper.BindPFlag("receiverMail", rootCmd.Flags().Lookup("receiver-mail"))
+	viper.BindPFlag("kindleMail", rootCmd.Flags().Lookup("kindle-mail"))
+}
+
+func initConfig() {
+	if configFile != "" {
+		viper.SetConfigFile(configFile)
 	}
 
-	config := &Config{
-		port:         fastjson.GetInt(data, "port"),
-		syncPath:     fastjson.GetString(data, "syncPath"),
-		outputPath:   fastjson.GetString(data, "outputPath"),
-		title:        fastjson.GetString(data, "title"),
-		smtpHost:     fastjson.GetString(data, "smtpHost"),
-		smtpPort:     fastjson.GetInt(data, "smtpPort"),
-		username:     fastjson.GetString(data, "username"),
-		password:     fastjson.GetString(data, "password"),
-		receiverMail: fastjson.GetString(data, "receiverMail"),
-		kindleMail:   fastjson.GetString(data, "kindleMail"),
+	if err := viper.ReadInConfig(); err == nil {
+		log.Println("加载配置文件：", viper.ConfigFileUsed())
 	}
 
-	if config.port == 0 {
-		config.port = 7026
-	}
-	if config.title == "" {
-		config.title = "[简悦] - {{ title }}"
-	}
-	if config.syncPath != "" && config.outputPath == "" {
-		config.outputPath = filepath.Join(config.syncPath, "output")
-	}
+	port = viper.GetInt("port")
+	syncPath = viper.GetString("syncPath")
+	outputPath = viper.GetString("outputPath")
+	smtpHost = viper.GetString("smtpHost")
+	smtpPort = viper.GetInt("smtpPort")
+	smtpUsername = viper.GetString("smtpUsername")
+	smtpPassword = viper.GetString("smtpPassword")
+	mailTitle = viper.GetString("mailTitle")
+	receiverMail = viper.GetString("receiverMail")
+	kindleMail = viper.GetString("kindleMail")
 
-	log.Println("init config")
-
-	return config
+	if syncPath == "" {
+		log.Fatal("未读取到 syncPath！")
+	}
+	if outputPath == "" {
+		outputPath = filepath.Join(syncPath, "output")
+	}
 }
 
 // 未验证 json 返回 201
@@ -96,13 +135,13 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 // 剩余情况下，返回一个 key 为 result 的 json
 func configHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	if config.syncPath != "" {
+	if syncPath != "" {
 		err := r.ParseForm()
 		if err != nil {
 			log.Fatal(err)
 		}
 		if data := r.Form.Get("config"); data != "" {
-			err := ioutil.WriteFile(filepath.Join(config.syncPath, "simpread_config.json"), []byte(data), 644)
+			err := ioutil.WriteFile(filepath.Join(syncPath, "simpread_config.json"), []byte(data), 0644)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -120,7 +159,7 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Println("sync config from browser")
 		} else {
-			config, err := ioutil.ReadFile(filepath.Join(config.syncPath, "simpread_config.json"))
+			config, err := ioutil.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -155,7 +194,6 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Fatal("Please set syncPath first !")
 	}
 }
 
@@ -169,7 +207,7 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 
-	err = ioutil.WriteFile(filepath.Join(config.outputPath, title), []byte(content), 0644)
+	err = ioutil.WriteFile(filepath.Join(outputPath, title), []byte(content), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -195,20 +233,20 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	// 这里偷懒直接替换文本
-	title := strings.ReplaceAll(config.title, "{{ title }}", r.Form.Get("title"))
-	log.Print(title)
+	title := strings.ReplaceAll(mailTitle, "{{ title }}", r.Form.Get("title"))
+
 	content := r.Form.Get("content")
 	attach := r.Form.Get("attach")
 
-	d := gomail.NewDialer(config.smtpHost, config.smtpPort, config.username, config.password)
+	d := gomail.NewDialer(smtpHost, smtpPort, smtpUsername, smtpPassword)
 	s, err := d.Dial()
 	if err != nil {
 		panic(err)
 	}
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", config.username)
-	m.SetHeader("To", config.receiverMail)
+	m.SetHeader("From", smtpUsername)
+	m.SetHeader("To", receiverMail)
 	m.SetHeader("Subject", title)
 	m.SetBody("text/html", content)
 
@@ -252,7 +290,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	in := r.Form.Get("in")   //md
 	out := r.Form.Get("out") //epub
 
-	err = ioutil.WriteFile(title+"."+in, []byte(content), 0644)
+	err = ioutil.WriteFile("tmp-"+title+"."+in, []byte(content), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -261,7 +299,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	if runtime.GOOS == "darwin" {
 		pandoc = "/usr/local/bin/pandoc"
 	}
-	cmd := exec.Command(pandoc, title+"."+in, "-o", filepath.Join(config.outputPath, title+"."+out))
+	cmd := exec.Command(pandoc, "tmp-"+title+"."+in, "-o", filepath.Join(outputPath, title+"."+out))
 
 	err = cmd.Start()
 	if err != nil {
@@ -273,7 +311,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	os.Remove(title + "." + in)
+	os.Remove("tmp-" + title + "." + in)
 
 	result, err := json.Marshal(struct {
 		Status int `json:"status"`
@@ -296,7 +334,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var files []string
-	fileInfo, err := ioutil.ReadDir(config.outputPath)
+	fileInfo, err := ioutil.ReadDir(outputPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -340,7 +378,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if title != "" {
-			result, err = ioutil.ReadFile(filepath.Join(config.outputPath, title))
+			result, err = ioutil.ReadFile(filepath.Join(outputPath, title))
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -384,27 +422,9 @@ func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var config *Config
-
 func main() {
-	var path string
-	if len(os.Args) < 2 {
-		path = "config.json"
-	} else {
-		path = os.Args[1]
-	}
-	config = initConfig(path)
-
-	http.HandleFunc("/verify", verifyHandle)
-	http.HandleFunc("/config", configHandle)
-	http.HandleFunc("/plain", plainHandle)
-	http.HandleFunc("/mail", mailHandle)
-	http.HandleFunc("/convert", convertHandle)
-	http.HandleFunc("/reading/", readingHandle)
-	http.HandleFunc("/proxy", proxyHandle)
-
-	err := http.ListenAndServe(fmt.Sprint(":", config.port), nil)
-	if err != nil {
-		log.Fatal(err)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
