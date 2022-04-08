@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"io/ioutil"
 	"log"
@@ -189,7 +190,6 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("save file: %s\n", title)
 }
 
-// TODO 发送后删除附件
 func mailHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
@@ -289,6 +289,79 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("convert file: %s\n", title)
 }
 
+func readingHandle(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var files []string
+	fileInfo, err := ioutil.ReadDir(config.outputPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, file := range fileInfo {
+		if !file.IsDir() {
+			files = append(files, file.Name())
+		}
+	}
+
+	var result []byte
+	if r.RequestURI == "/reading/index" {
+		w.Header().Set("content-type", "application/json")
+		result, err = json.Marshal(struct {
+			Files []string `json:"files"`
+		}{Files: files})
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		id := strings.Replace(r.URL.Path, "/reading/", "", 1)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		query := r.URL.Query().Get("title")
+		suffix := r.Header.Get("type")
+		if suffix == "" {
+			suffix = ".html"
+		}
+
+		var title string
+		for _, file := range files {
+			if (strings.HasPrefix(file, id+"-") &&
+				strings.HasSuffix(file, suffix) &&
+				!strings.Contains(file, "@annote")) ||
+				file == id+suffix ||
+				file == query+suffix {
+				title = file
+				break
+			}
+		}
+
+		if title != "" {
+			result, err = ioutil.ReadFile(filepath.Join(config.outputPath, title))
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			w.Header().Set("content-type", "application/json")
+			result, err = json.Marshal(struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}{Code: 404, Message: "没有找到对应的内容"})
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 var config *Config
 
 func main() {
@@ -305,6 +378,7 @@ func main() {
 	http.HandleFunc("/plain", plainHandle)
 	http.HandleFunc("/mail", mailHandle)
 	http.HandleFunc("/convert", convertHandle)
+	http.HandleFunc("/reading/", readingHandle)
 
 	err := http.ListenAndServe(fmt.Sprint(":", config.port), nil)
 	if err != nil {
