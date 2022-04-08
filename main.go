@@ -195,6 +195,7 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 	}
 	// 这里偷懒直接替换文本
 	title := strings.ReplaceAll(config.title, "{{ title }}", r.Form.Get("title"))
+	log.Print(title)
 	content := r.Form.Get("content")
 	attach := r.Form.Get("attach")
 
@@ -207,7 +208,7 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 	m := gomail.NewMessage()
 	m.SetHeader("From", config.username)
 	m.SetHeader("To", config.receiverMail)
-	m.SetHeader("Subject", fmt.Sprintf(config.title, title))
+	m.SetHeader("Subject", title)
 	m.SetBody("text/html", content)
 
 	var attachPath string
