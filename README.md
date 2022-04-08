@@ -21,26 +21,26 @@
 ## Usage
 
 ```sh
-./simpread-sync <configPath>
+./simpread-sync -c <configPath>
 ```
 
-启动时如果不带参数，配置文件默认为当前工作目录下的 config.json。
-
-config.json 默认配置如下，`syncPath` 必须填写，否则无法自动同步。
-
-`outputPath` 如果不填写，默认为 `syncPath` 下的 output 文件夹。
+config.json 默认配置如下：
 
 ```json
 {
     "port": 7026,
     "syncPath": "",
     "outputPath": "",
-    "title": "[简悦] - {{ title }}",
     "smtpHost": "",
-    "smtpPort": 0,
-    "username": "",
-    "password": "",
+    "smtpPort": 465,
+    "smtpUsername": "",
+    "smtpPassword": "",
+    "mailTitle": "[简悦] - {{ title }}",
     "receiverMail": "",
     "kindleMail": ""
 }
 ```
+
+`syncPath` 必须填写，否则无法自动同步。
+
+`outputPath` 如果不填写，默认为 `syncPath` 下的 output 文件夹。
