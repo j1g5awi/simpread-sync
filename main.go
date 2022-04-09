@@ -22,17 +22,18 @@ import (
 )
 
 var (
-	configFile   string
-	port         int
-	syncPath     string
-	outputPath   string
-	smtpHost     string
-	smtpPort     int
-	smtpUsername string
-	smtpPassword string
-	mailTitle    string
-	receiverMail string
-	kindleMail   string
+	configFile         string
+	port               int
+	syncPath           string
+	outputPath         string
+	markdownOutputPath string
+	smtpHost           string
+	smtpPort           int
+	smtpUsername       string
+	smtpPassword       string
+	mailTitle          string
+	receiverMail       string
+	kindleMail         string
 )
 
 var rootCmd = &cobra.Command{
@@ -60,6 +61,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&port, "port", "p", 7026, "port")
 	rootCmd.Flags().StringVar(&syncPath, "sync-path", "", "sync path")
 	rootCmd.Flags().StringVar(&outputPath, "output-path", "", "output path")
+	rootCmd.Flags().StringVar(&markdownOutputPath, "markdown-output", "", "markdown output path")
 	rootCmd.Flags().StringVar(&smtpHost, "smtp-host", "", "smtp host")
 	rootCmd.Flags().IntVar(&smtpPort, "smtp-port", 465, "smtp port")
 	rootCmd.Flags().StringVar(&smtpUsername, "smtp-username", "", "smtp username")
@@ -71,6 +73,7 @@ func init() {
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
 	viper.BindPFlag("outputPath", rootCmd.Flags().Lookup("output-path"))
+	viper.BindPFlag("markdownOutputPath", rootCmd.Flags().Lookup("markdown-output"))
 	viper.BindPFlag("smtpHost", rootCmd.Flags().Lookup("smtp-host"))
 	viper.BindPFlag("smtpPort", rootCmd.Flags().Lookup("smtp-port"))
 	viper.BindPFlag("smtpUsername", rootCmd.Flags().Lookup("smtp-username"))
@@ -94,6 +97,7 @@ func initConfig() {
 	port = viper.GetInt("port")
 	syncPath = viper.GetString("syncPath")
 	outputPath = viper.GetString("outputPath")
+	markdownOutputPath = viper.GetString("markdownOutputPath")
 	smtpHost = viper.GetString("smtpHost")
 	smtpPort = viper.GetInt("smtpPort")
 	smtpUsername = viper.GetString("smtpUsername")
@@ -249,7 +253,13 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 
-	err = ioutil.WriteFile(filepath.Join(outputPath, title), []byte(content), 0644)
+	var filePath string
+	if markdownOutputPath != "" && strings.HasSuffix(title, ".md") && !strings.HasPrefix(title, "tmp-") {
+		filePath = filepath.Join(markdownOutputPath, title)
+	} else {
+		filePath = filepath.Join(outputPath, title)
+	}
+	err = ioutil.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		log.Println(err)
 		return
