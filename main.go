@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,15 +132,27 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println("verify success")
 }
 
+var isSecond bool = false
+
 // 如果浏览器插件的设置项更改了，它会发一个 key 为 config 的请求，json 返回 200
 // 剩余情况下，返回一个 key 为 result 的 json
 func configHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	if syncPath != "" {
-		err := r.ParseForm()
+		// 规避标准库大小限制
+		b, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Fatal(err)
 		}
+		vs, err := url.ParseQuery(string(b))
+		if err != nil {
+			log.Fatal(err)
+		}
+		r.Form = make(url.Values)
+		for k, vs := range vs {
+			r.Form[k] = append(r.Form[k], vs...)
+		}
+
 		if data := r.Form.Get("config"); data != "" {
 			err := ioutil.WriteFile(filepath.Join(syncPath, "simpread_config.json"), []byte(data), 0644)
 			if err != nil {
@@ -159,6 +172,14 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Println("sync config from browser")
 		} else {
+			if !isSecond {
+				w.WriteHeader(http.StatusNotModified)
+				isSecond = true
+				return
+			} else {
+				isSecond = false
+			}
+
 			config, err := ioutil.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
 			if err != nil {
 				log.Fatal(err)
