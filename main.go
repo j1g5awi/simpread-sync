@@ -81,6 +81,8 @@ func init() {
 func initConfig() {
 	if configFile != "" {
 		viper.SetConfigFile(configFile)
+	} else {
+		viper.SetConfigFile("config.json")
 	}
 
 	if err := viper.ReadInConfig(); err == nil {
