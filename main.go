@@ -114,7 +114,8 @@ func initConfig() {
 func verifyHandle(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	result, err := json.Marshal(struct {
 		Code   int    `json:"code"`
@@ -124,12 +125,14 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 		Status: "same",
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	_, err = w.Write(result)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	log.Println("verify success")
 }
@@ -144,11 +147,13 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 		// 规避标准库大小限制
 		b, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
 		vs, err := url.ParseQuery(string(b))
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
 		r.Form = make(url.Values)
 		for k, vs := range vs {
@@ -158,19 +163,22 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 		if data := r.Form.Get("config"); data != "" {
 			err := ioutil.WriteFile(filepath.Join(syncPath, "simpread_config.json"), []byte(data), 0644)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 
 			result, err := json.Marshal(struct {
 				Status int `json:"status"`
 			}{Status: 200})
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 
 			_, err = w.Write(result)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 			log.Println("sync config from browser")
 		} else {
@@ -180,11 +188,14 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 				return
 			} else {
 				isSecond = false
+				// 返回了个 etag 骗缓存
+				w.Header().Add("Etag", "etag")
 			}
 
 			config, err := ioutil.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 			result, err := json.Marshal(struct {
 				Status int    `json:"status"`
@@ -194,12 +205,14 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 				Result: string(config),
 			})
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 
 			_, err = w.Write(result)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 			log.Println("sync config from local")
 		}
@@ -210,12 +223,14 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			Status: "error",
 		})
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
 
 		_, err = w.Write(result)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
 	}
 }
@@ -225,26 +240,30 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 
 	err := r.ParseForm()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 
 	err = ioutil.WriteFile(filepath.Join(outputPath, title), []byte(content), 0644)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	result, err := json.Marshal(struct {
 		Status int `json:"status"`
 	}{Status: 200})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	_, err = w.Write(result)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	log.Printf("save file: %s\n", title)
 }
@@ -253,7 +272,8 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	// 这里偷懒直接替换文本
 	title := strings.ReplaceAll(mailTitle, "{{ title }}", r.Form.Get("title"))
@@ -281,7 +301,8 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 
 	err = gomail.Send(s, m)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	if attach != "" {
@@ -292,12 +313,14 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 		Status int `json:"status"`
 	}{Status: 200})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	_, err = w.Write(result)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	log.Printf("send mail: %s\n", title)
 }
@@ -306,7 +329,8 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
@@ -315,7 +339,8 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 
 	err = ioutil.WriteFile("tmp-"+title+"."+in, []byte(content), 0644)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	pandoc := "pandoc"
@@ -326,12 +351,14 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 
 	err = cmd.Start()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	err = cmd.Wait()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	os.Remove("tmp-" + title + "." + in)
@@ -340,12 +367,14 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		Status int `json:"status"`
 	}{Status: 200})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	_, err = w.Write(result)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	log.Printf("convert file: %s\n", title)
 }
@@ -353,13 +382,15 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 func readingHandle(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 
 	var files []string
 	fileInfo, err := ioutil.ReadDir(outputPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	for _, file := range fileInfo {
 		if !file.IsDir() {
@@ -374,12 +405,15 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 			Files []string `json:"files"`
 		}{Files: files})
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
+		log.Println("reading index")
 	} else {
 		id := strings.Replace(r.URL.Path, "/reading/", "", 1)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
 
 		query := r.URL.Query().Get("title")
@@ -403,8 +437,10 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 		if title != "" {
 			result, err = ioutil.ReadFile(filepath.Join(outputPath, title))
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
+			log.Println("reading file ", title)
 		} else {
 			w.Header().Set("content-type", "application/json")
 			result, err = json.Marshal(struct {
@@ -412,14 +448,16 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 				Message string `json:"message"`
 			}{Code: 404, Message: "没有找到对应的内容"})
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 		}
 	}
 
 	_, err = w.Write(result)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 }
 
