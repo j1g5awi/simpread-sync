@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -112,6 +114,7 @@ func initConfig() {
 // 已验证 json 返回 403
 // 这里无论如何都返回成功，有其他用处以后再说
 func verifyHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
 	if err != nil {
 		log.Println(err)
@@ -137,7 +140,7 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println("verify success")
 }
 
-var isSecond bool = false
+var etag string
 
 // 如果浏览器插件的设置项更改了，它会发一个 key 为 config 的请求，json 返回 200
 // 剩余情况下，返回一个 key 为 result 的 json
@@ -182,21 +185,21 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Println("sync config from browser")
 		} else {
-			if !isSecond {
-				w.WriteHeader(http.StatusNotModified)
-				isSecond = true
-				return
-			} else {
-				isSecond = false
-				// 返回了个 etag 骗缓存
-				w.Header().Add("Etag", "etag")
-			}
-
 			config, err := ioutil.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
 			if err != nil {
 				log.Println(err)
 				return
 			}
+
+			hash := md5.Sum(config)
+			etag = hex.EncodeToString(hash[:])
+			if r.Header.Get("If-None-Match") == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+
+			w.Header().Set("Etag", etag)
+
 			result, err := json.Marshal(struct {
 				Status int    `json:"status"`
 				Result string `json:"result"`
@@ -440,7 +443,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 				log.Println(err)
 				return
 			}
-			log.Println("reading file ", title)
+			log.Println("reading file", title)
 		} else {
 			w.Header().Set("content-type", "application/json")
 			result, err = json.Marshal(struct {
