@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -46,6 +47,7 @@ var rootCmd = &cobra.Command{
 		http.HandleFunc("/convert", convertHandle)
 		http.HandleFunc("/reading/", readingHandle)
 		http.HandleFunc("/proxy", proxyHandle)
+		http.HandleFunc("/textbundle", textbundleHandle)
 
 		err := http.ListenAndServe(fmt.Sprint(":", port), nil)
 		if err != nil {
@@ -278,7 +280,7 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	log.Printf("save file: %s\n", title)
+	log.Println("save file:", title)
 }
 
 func mailHandle(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +337,7 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	log.Printf("send mail: %s\n", title)
+	log.Println("send mail:", title)
 }
 
 func convertHandle(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +391,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	log.Printf("convert file: %s\n", title)
+	log.Println("convert file:", title)
 }
 
 func readingHandle(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +455,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 				log.Println(err)
 				return
 			}
-			log.Println("reading file", title)
+			log.Println("reading file:", title)
 		} else {
 			w.Header().Set("content-type", "application/json")
 			result, err = json.Marshal(struct {
@@ -474,11 +476,97 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var matchImage = regexp.MustCompile(`(?i)\!\[\]\(http(s)?:\/\/[^)]+\)`)
+var matchReplace = regexp.MustCompile(`^!\[\]\(|\)$`)
+
+func textbundleHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	title := r.Form.Get("title")
+	content := r.Form.Get("content")
+	images := matchImage.FindAllString(content, -1)
+
+	var filePath string
+	if markdownOutputPath != "" {
+		filePath = filepath.Join(markdownOutputPath, title+".textbundle")
+	} else {
+		filePath = filepath.Join(outputPath, title+".textbundle")
+	}
+
+	err = os.Mkdir(filePath, 0755)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	for i, image := range images {
+		content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+		go func(i int, image string) {
+			image = matchReplace.ReplaceAllString(image, "")
+
+			resp, err := http.Get(image)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			defer resp.Body.Close()
+
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}(i, image)
+	}
+
+	err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte("[object Object]"), 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	err = ioutil.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	result, err := json.Marshal(struct {
+		Status int `json:"status"`
+	}{Status: 200})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	log.Println("save textbundle:", title)
+}
+
 func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	url := r.URL.Query().Get("url")
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Println("proxy error: ", err)
+		log.Println("proxy error:", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -491,7 +579,7 @@ func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
-		log.Println("proxy error: ", err)
+		log.Println("proxy error:", err)
 		return
 	}
 }
