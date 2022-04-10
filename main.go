@@ -13,14 +13,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/valyala/fastjson"
 	"gopkg.in/gomail.v2"
 )
 
+var Version string = "(devel)"
 var (
 	configFile   string
 	port         int
@@ -33,6 +37,7 @@ var (
 	mailTitle    string
 	receiverMail string
 	kindleMail   string
+	checkVersion bool
 )
 
 var rootCmd = &cobra.Command{
@@ -67,6 +72,7 @@ func init() {
 	rootCmd.Flags().StringVar(&mailTitle, "mail-title", "[简悦] - {{ title }}", "mail title")
 	rootCmd.Flags().StringVar(&receiverMail, "receiver-mail", "", "receiver mail")
 	rootCmd.Flags().StringVar(&kindleMail, "kindle-mail", "", "kindle mail")
+	rootCmd.Flags().BoolVarP(&checkVersion, "version", "V", false, "check version")
 
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
@@ -81,6 +87,41 @@ func init() {
 }
 
 func initConfig() {
+	if checkVersion {
+		log.Println("当前版本：", Version)
+		if Version == "(devel)" {
+			os.Exit(0)
+		}
+		resp, err := http.Get("https://api.github.com/repos/j1g5awi/simpread-sync/releases/latest")
+		if err != nil {
+			log.Fatal("检查更新失败：", err)
+		}
+		defer resp.Body.Close()
+		data, _ := ioutil.ReadAll(resp.Body)
+		remote := fastjson.GetString(data, "tag_name")
+		sp := regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)-?(.+)?`)
+		cur := sp.FindStringSubmatch(Version)
+		re := sp.FindStringSubmatch(remote)
+		for i := 1; i <= 3; i++ {
+			curSub, _ := strconv.Atoi(cur[i])
+			reSub, _ := strconv.Atoi(re[i])
+			if curSub < reSub {
+				log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+				os.Exit(0)
+			} else if curSub > reSub {
+				os.Exit(0)
+			}
+		}
+		if cur[4] == "" || re[4] == "" {
+			if re[4] == "" && cur[4] != re[4] {
+				log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+			}
+		} else if cur[4] < re[4] {
+			log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+		}
+		os.Exit(0)
+	}
+
 	if configFile != "" {
 		viper.SetConfigFile(configFile)
 	} else {
