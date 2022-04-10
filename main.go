@@ -72,7 +72,7 @@ func init() {
 	rootCmd.Flags().IntVar(&smtpPort, "smtp-port", 465, "smtp port")
 	rootCmd.Flags().StringVar(&smtpUsername, "smtp-username", "", "smtp username")
 	rootCmd.Flags().StringVar(&smtpPassword, "smtp-password", "", "smtp password")
-	rootCmd.Flags().StringVar(&mailTitle, "mail-title", "[简悦] - {{ title }}", "mail title")
+	rootCmd.Flags().StringVar(&mailTitle, "mail-title", "[简悦] - {{title}}", "mail title")
 	rootCmd.Flags().StringVar(&receiverMail, "receiver-mail", "", "receiver mail")
 	rootCmd.Flags().StringVar(&kindleMail, "kindle-mail", "", "kindle mail")
 	rootCmd.Flags().BoolVarP(&checkVersion, "version", "V", false, "check version")
@@ -331,7 +331,7 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 这里偷懒直接替换文本
-	title := strings.ReplaceAll(mailTitle, "{{ title }}", r.Form.Get("title"))
+	title := strings.ReplaceAll(mailTitle, "{{title}}", r.Form.Get("title"))
 
 	content := r.Form.Get("content")
 	attach := r.Form.Get("attach")
