@@ -476,8 +476,8 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var matchImage = regexp.MustCompile(`(?i)\!\[\]\(http(s)?:\/\/[^)]+\)`)
-var matchReplace = regexp.MustCompile(`^!\[\]\(|\)$`)
+var matchImage = regexp.MustCompile(`(?i)\!\[(\S+)?\]\(http(s)?:\/\/[^)]+\)`)
+var matchReplace = regexp.MustCompile(`^!\[(\S+)?\]\(|\)$`)
 
 func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
