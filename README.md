@@ -14,8 +14,6 @@
   - [x] Kindle
 - 稍后读加载本地文件
 
-由于每次自动同步时都直接读取本地文件然后返回，文件大了可能会有性能问题。
-
 稍后读设置里请不要勾选「使用简悦 · 同步助手内置的解析器」，此功能无法实现。
 
 ## Usage
@@ -35,7 +33,7 @@ config.json 默认配置如下：
     "smtpPort": 465,
     "smtpUsername": "",
     "smtpPassword": "",
-    "mailTitle": "[简悦] - {{ title }}",
+    "mailTitle": "[简悦] - {{title}}",
     "receiverMail": "",
     "kindleMail": ""
 }

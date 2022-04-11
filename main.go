@@ -186,6 +186,23 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println("verify success")
 }
 
+// 规避标准库大小限制
+func myParseForm(r *http.Request) error {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	vs, err := url.ParseQuery(string(b))
+	if err != nil {
+		return err
+	}
+	r.Form = make(url.Values)
+	for k, vs := range vs {
+		r.Form[k] = append(r.Form[k], vs...)
+	}
+	return nil
+}
+
 var etag string
 
 // 如果浏览器插件的设置项更改了，它会发一个 key 为 config 的请求，json 返回 200
@@ -193,20 +210,10 @@ var etag string
 func configHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	if syncPath != "" {
-		// 规避标准库大小限制
-		b, err := io.ReadAll(r.Body)
+		err := myParseForm(r)
 		if err != nil {
 			log.Println(err)
 			return
-		}
-		vs, err := url.ParseQuery(string(b))
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		r.Form = make(url.Values)
-		for k, vs := range vs {
-			r.Form[k] = append(r.Form[k], vs...)
 		}
 
 		if data := r.Form.Get("config"); data != "" {
@@ -287,11 +294,12 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 func plainHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 
-	err := r.ParseForm()
+	err := myParseForm(r)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 
