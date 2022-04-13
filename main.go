@@ -20,25 +20,26 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/valyala/fastjson"
+	"github.com/tidwall/gjson"
 	"gopkg.in/gomail.v2"
 )
 
 var Version string = "(devel)"
 var (
-	configFile         string
-	port               int
-	syncPath           string
-	outputPath         string
-	markdownOutputPath string
-	smtpHost           string
-	smtpPort           int
-	smtpUsername       string
-	smtpPassword       string
-	mailTitle          string
-	receiverMail       string
-	kindleMail         string
-	checkVersion       bool
+	configFile   string
+	port         int
+	syncPath     string
+	outputPath   string
+	markdownPath string
+	autoRemove   bool
+	smtpHost     string
+	smtpPort     int
+	smtpUsername string
+	smtpPassword string
+	mailTitle    string
+	receiverMail string
+	kindleMail   string
+	checkVersion bool
 )
 
 var rootCmd = &cobra.Command{
@@ -67,7 +68,8 @@ func init() {
 	rootCmd.Flags().IntVarP(&port, "port", "p", 7026, "port")
 	rootCmd.Flags().StringVar(&syncPath, "sync-path", "", "sync path")
 	rootCmd.Flags().StringVar(&outputPath, "output-path", "", "output path")
-	rootCmd.Flags().StringVar(&markdownOutputPath, "markdown-output", "", "markdown output path")
+	rootCmd.Flags().StringVar(&markdownPath, "markdown-path", "", "markdown output path")
+	rootCmd.Flags().BoolVar(&autoRemove, "auto-remove", false, "auto remove")
 	rootCmd.Flags().StringVar(&smtpHost, "smtp-host", "", "smtp host")
 	rootCmd.Flags().IntVar(&smtpPort, "smtp-port", 465, "smtp port")
 	rootCmd.Flags().StringVar(&smtpUsername, "smtp-username", "", "smtp username")
@@ -80,7 +82,8 @@ func init() {
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
 	viper.BindPFlag("outputPath", rootCmd.Flags().Lookup("output-path"))
-	viper.BindPFlag("markdownOutputPath", rootCmd.Flags().Lookup("markdown-output"))
+	viper.BindPFlag("markdownPath", rootCmd.Flags().Lookup("markdown-path"))
+	viper.BindPFlag("autoRemove", rootCmd.Flags().Lookup("auto-remove"))
 	viper.BindPFlag("smtpHost", rootCmd.Flags().Lookup("smtp-host"))
 	viper.BindPFlag("smtpPort", rootCmd.Flags().Lookup("smtp-port"))
 	viper.BindPFlag("smtpUsername", rootCmd.Flags().Lookup("smtp-username"))
@@ -102,7 +105,7 @@ func initConfig() {
 		}
 		defer resp.Body.Close()
 		data, _ := ioutil.ReadAll(resp.Body)
-		remote := fastjson.GetString(data, "tag_name")
+		remote := gjson.Get(string(data), "tag_name").String()
 		sp := regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)-?(.+)?`)
 		cur := sp.FindStringSubmatch(Version)
 		re := sp.FindStringSubmatch(remote)
@@ -139,7 +142,7 @@ func initConfig() {
 	port = viper.GetInt("port")
 	syncPath = viper.GetString("syncPath")
 	outputPath = viper.GetString("outputPath")
-	markdownOutputPath = viper.GetString("markdownOutputPath")
+	markdownPath = viper.GetString("markdownPath")
 	smtpHost = viper.GetString("smtpHost")
 	smtpPort = viper.GetInt("smtpPort")
 	smtpUsername = viper.GetString("smtpUsername")
@@ -153,6 +156,9 @@ func initConfig() {
 	}
 	if outputPath == "" {
 		outputPath = filepath.Join(syncPath, "output")
+	}
+	if markdownPath == "" {
+		markdownPath = outputPath
 	}
 }
 
@@ -204,6 +210,7 @@ func myParseForm(r *http.Request) error {
 }
 
 var etag string
+var unrdist map[int]struct{}
 
 // 如果浏览器插件的设置项更改了，它会发一个 key 为 config 的请求，json 返回 200
 // 剩余情况下，返回一个 key 为 result 的 json
@@ -221,6 +228,34 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Println(err)
 				return
+			}
+
+			if autoRemove {
+				newUnrdist := make(map[int]struct{}, len(gjson.Get(data, "unrdist").Array()))
+				for _, unrd := range gjson.Get(data, "unrdist").Array() {
+					newUnrdist[int(unrd.Get("idx").Int())] = struct{}{}
+				}
+				var toDelete int
+				for idx := range unrdist {
+					if _, ok := newUnrdist[idx]; !ok {
+						toDelete = idx
+						break
+					}
+				}
+				unrdist = newUnrdist
+				fileInfo, err := ioutil.ReadDir(outputPath)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				for _, file := range fileInfo {
+					if !file.IsDir() && strings.HasPrefix(file.Name(), fmt.Sprint(toDelete, "-")) {
+						err := os.Remove(filepath.Join(outputPath, file.Name()))
+						if err != nil {
+							log.Println(err)
+						}
+					}
+				}
 			}
 
 			result, err := json.Marshal(struct {
@@ -304,8 +339,8 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	content := r.Form.Get("content")
 
 	var filePath string
-	if markdownOutputPath != "" && strings.HasSuffix(title, ".md") && !strings.HasPrefix(title, "tmp-") {
-		filePath = filepath.Join(markdownOutputPath, title)
+	if strings.HasSuffix(title, ".md") && !strings.HasPrefix(title, "tmp-") {
+		filePath = filepath.Join(markdownPath, title)
 	} else {
 		filePath = filepath.Join(outputPath, title)
 	}
@@ -538,12 +573,7 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 	content := r.Form.Get("content")
 	images := matchImage.FindAllString(content, -1)
 
-	var filePath string
-	if markdownOutputPath != "" {
-		filePath = filepath.Join(markdownOutputPath, title+".textbundle")
-	} else {
-		filePath = filepath.Join(outputPath, title+".textbundle")
-	}
+	filePath := filepath.Join(markdownPath, title+".textbundle")
 
 	err = os.Mkdir(filePath, 0755)
 	if err != nil {
