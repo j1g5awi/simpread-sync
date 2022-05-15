@@ -50,6 +50,7 @@ var rootCmd = &cobra.Command{
 		http.HandleFunc("/plain", plainHandle)
 		http.HandleFunc("/mail", mailHandle)
 		http.HandleFunc("/convert", convertHandle)
+		http.HandleFunc("/wkhtmltopdf", wkhtmltopdfHandle)
 		http.HandleFunc("/reading/", readingHandle)
 		http.HandleFunc("/proxy", proxyHandle)
 		http.HandleFunc("/textbundle", textbundleHandle)
@@ -447,13 +448,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	}
 	cmd := exec.Command(pandoc, "tmp-"+title+"."+in, "-o", filepath.Join(outputPath, title+"."+out))
 
-	err = cmd.Start()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	err = cmd.Wait()
+	err = cmd.Run()
 	if err != nil {
 		log.Println(err)
 		return
@@ -475,6 +470,54 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("convert file:", title)
+}
+
+func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	title := r.Form.Get("title")
+	content := r.Form.Get("content")
+	params := strings.Split(r.Form.Get("params"), " ")
+	root := r.Form.Get("root")
+
+	err = ioutil.WriteFile("tmp-"+title+".html", []byte(content), 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	if root == "" {
+		root = "wkhtmltopdf"
+	}
+	params = append(params, "tmp-"+title+".html", filepath.Join(outputPath, title+".pdf"))
+	cmd := exec.Command(root, params...)
+
+	err = cmd.Run()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	os.Remove("tmp-" + title + ".html")
+
+	result, err := json.Marshal(struct {
+		Status int `json:"status"`
+	}{Status: 200})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	log.Println("wkhtmltopdf:", title)
 }
 
 func readingHandle(w http.ResponseWriter, r *http.Request) {
