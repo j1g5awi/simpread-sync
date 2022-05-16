@@ -394,7 +394,7 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 
 	var attachPath string
 	if attach != "" {
-		attachPath = fmt.Sprintf("tmp-%s.%s", title, attach)
+		attachPath = filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, attach))
 		m.Attach(attachPath)
 	}
 
@@ -436,7 +436,8 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	in := r.Form.Get("in")   //md
 	out := r.Form.Get("out") //epub
 
-	err = ioutil.WriteFile("tmp-"+title+"."+in, []byte(content), 0644)
+	tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, in))
+	err = ioutil.WriteFile(tmpFilePath, []byte(content), 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -446,7 +447,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	if runtime.GOOS == "darwin" {
 		pandoc = "/usr/local/bin/pandoc"
 	}
-	cmd := exec.Command(pandoc, "tmp-"+title+"."+in, "-o", filepath.Join(outputPath, title+"."+out))
+	cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(outputPath, title+"."+out))
 
 	err = cmd.Run()
 	if err != nil {
@@ -454,7 +455,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	os.Remove("tmp-" + title + "." + in)
+	os.Remove(tmpFilePath)
 
 	result, err := json.Marshal(struct {
 		Status int `json:"status"`
@@ -484,7 +485,8 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	params := strings.Split(r.Form.Get("params"), " ")
 	root := r.Form.Get("root")
 
-	err = ioutil.WriteFile("tmp-"+title+".html", []byte(content), 0644)
+	tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.html", title))
+	err = ioutil.WriteFile(tmpFilePath, []byte(content), 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -493,7 +495,7 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "wkhtmltopdf"
 	}
-	params = append(params, "tmp-"+title+".html", filepath.Join(outputPath, title+".pdf"))
+	params = append(params, tmpFilePath, filepath.Join(outputPath, title+".pdf"))
 	cmd := exec.Command(root, params...)
 
 	err = cmd.Run()
@@ -502,7 +504,7 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	os.Remove("tmp-" + title + ".html")
+	os.Remove(tmpFilePath)
 
 	result, err := json.Marshal(struct {
 		Status int `json:"status"`
