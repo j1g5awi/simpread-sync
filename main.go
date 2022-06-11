@@ -54,6 +54,7 @@ var rootCmd = &cobra.Command{
 		http.HandleFunc("/reading/", readingHandle)
 		http.HandleFunc("/proxy", proxyHandle)
 		http.HandleFunc("/textbundle", textbundleHandle)
+		http.HandleFunc("/notextbundle", notextbundleHandle)
 
 		err := http.ListenAndServe(fmt.Sprint(":", port), nil)
 		if err != nil {
@@ -657,7 +658,7 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 		}(i, image)
 	}
 
-	err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte("[object Object]"), 0644)
+	err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -683,6 +684,83 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("save textbundle:", title)
+}
+
+// 懒得精简代码，复制粘贴
+func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	title := r.Form.Get("title")
+	content := r.Form.Get("content")
+	path := r.Form.Get("path")
+	images := matchImage.FindAllString(content, -1)
+
+	if path == "" {
+		path = markdownPath
+	}
+	filePath := filepath.Join(path, title)
+
+	err = os.Mkdir(filePath, 0755)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	for i, image := range images {
+		content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+		go func(i int, image string) {
+			image = matchReplace.ReplaceAllString(image, "")
+
+			resp, err := http.Get(image)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			defer resp.Body.Close()
+
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}(i, image)
+	}
+
+	err = ioutil.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	result, err := json.Marshal(struct {
+		Status int `json:"status"`
+	}{Status: 200})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	log.Println("save notextbundle:", title)
 }
 
 func proxyHandle(w http.ResponseWriter, r *http.Request) {
