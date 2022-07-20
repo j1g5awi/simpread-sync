@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -26,20 +27,20 @@ import (
 
 var Version string = "(devel)"
 var (
-	configFile   string
-	port         int
-	syncPath     string
-	outputPath   string
-	markdownPath string
-	autoRemove   bool
-	smtpHost     string
-	smtpPort     int
-	smtpUsername string
-	smtpPassword string
-	mailTitle    string
-	receiverMail string
-	kindleMail   string
-	checkVersion bool
+	configFile     string
+	port           int
+	syncPath       string
+	outputPath     string
+	enhancedOutput []map[string]string
+	autoRemove     bool
+	smtpHost       string
+	smtpPort       int
+	smtpUsername   string
+	smtpPassword   string
+	mailTitle      string
+	receiverMail   string
+	kindleMail     string
+	checkVersion   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -70,7 +71,6 @@ func init() {
 	rootCmd.Flags().IntVarP(&port, "port", "p", 7026, "port")
 	rootCmd.Flags().StringVar(&syncPath, "sync-path", "", "sync path")
 	rootCmd.Flags().StringVar(&outputPath, "output-path", "", "output path")
-	rootCmd.Flags().StringVar(&markdownPath, "markdown-path", "", "markdown output path")
 	rootCmd.Flags().BoolVar(&autoRemove, "auto-remove", false, "auto remove")
 	rootCmd.Flags().StringVar(&smtpHost, "smtp-host", "", "smtp host")
 	rootCmd.Flags().IntVar(&smtpPort, "smtp-port", 465, "smtp port")
@@ -84,7 +84,6 @@ func init() {
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
 	viper.BindPFlag("outputPath", rootCmd.Flags().Lookup("output-path"))
-	viper.BindPFlag("markdownPath", rootCmd.Flags().Lookup("markdown-path"))
 	viper.BindPFlag("autoRemove", rootCmd.Flags().Lookup("auto-remove"))
 	viper.BindPFlag("smtpHost", rootCmd.Flags().Lookup("smtp-host"))
 	viper.BindPFlag("smtpPort", rootCmd.Flags().Lookup("smtp-port"))
@@ -144,7 +143,13 @@ func initConfig() {
 	port = viper.GetInt("port")
 	syncPath = viper.GetString("syncPath")
 	outputPath = viper.GetString("outputPath")
-	markdownPath = viper.GetString("markdownPath")
+	for _, i := range viper.Get("enhancedOutput").([]interface{}) {
+		tmpMap := make(map[string]string)
+		for k, v := range i.(map[string]interface{}) {
+			tmpMap[k] = v.(string)
+		}
+		enhancedOutput = append(enhancedOutput, tmpMap)
+	}
 	smtpHost = viper.GetString("smtpHost")
 	smtpPort = viper.GetInt("smtpPort")
 	smtpUsername = viper.GetString("smtpUsername")
@@ -158,9 +163,6 @@ func initConfig() {
 	}
 	if outputPath == "" {
 		outputPath = filepath.Join(syncPath, "output")
-	}
-	if markdownPath == "" {
-		markdownPath = outputPath
 	}
 }
 
@@ -192,6 +194,23 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("verify success")
+}
+
+func getOutputPaths(extension string) []string {
+	outputPaths := []string{}
+	for _, i := range enhancedOutput {
+		if extension == i["extension"] {
+			path := i["path"]
+			if path == "" {
+				path = filepath.Join(outputPath, extension)
+			}
+			outputPaths = append(outputPaths, path)
+		}
+	}
+	if len(outputPaths) == 0 {
+		outputPaths = append(outputPaths, outputPath)
+	}
+	return outputPaths
 }
 
 // 规避标准库大小限制
@@ -340,16 +359,17 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 
-	var filePath string
-	if strings.HasSuffix(title, ".md") && !strings.HasPrefix(title, "tmp-") {
-		filePath = filepath.Join(markdownPath, title)
-	} else {
-		filePath = filepath.Join(outputPath, title)
+	suffix := path.Ext(title)[1:]
+	//TODO 测试标题带 tmp- 前缀的网页
+	if strings.HasPrefix(title, "tmp-") {
+		suffix = "tmp"
 	}
-	err = ioutil.WriteFile(filePath, []byte(content), 0644)
-	if err != nil {
-		log.Println(err)
-		return
+	for _, path := range getOutputPaths(suffix) {
+		err = ioutil.WriteFile(filepath.Join(path, title), []byte(content), 0644)
+		if err != nil {
+			log.Println(err)
+			continue //TODO 错误处理
+		}
 	}
 
 	result, err := json.Marshal(struct {
@@ -443,17 +463,19 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-
 	pandoc := "pandoc"
 	if runtime.GOOS == "darwin" {
 		pandoc = "/usr/local/bin/pandoc"
 	}
-	cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(outputPath, title+"."+out))
-
-	err = cmd.Run()
-	if err != nil {
-		log.Println(err)
-		return
+	//TODO 并发
+	for _, path := range getOutputPaths(out) {
+		cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(path, title+"."+out))
+		log.Println(cmd)
+		err = cmd.Run()
+		if err != nil {
+			log.Println(err)
+			continue //TODO 错误处理
+		}
 	}
 
 	os.Remove(tmpFilePath)
@@ -496,13 +518,15 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "wkhtmltopdf"
 	}
-	params = append(params, tmpFilePath, filepath.Join(outputPath, title+".pdf"))
-	cmd := exec.Command(root, params...)
+	// TODO 并发
+	for _, path := range getOutputPaths("pdf") {
+		cmd := exec.Command(root, append(params, tmpFilePath, filepath.Join(path, title+".pdf"))...)
 
-	err = cmd.Run()
-	if err != nil {
-		log.Println(err)
-		return
+		err = cmd.Run()
+		if err != nil {
+			log.Println(err)
+			continue //TODO 错误处理
+		}
 	}
 
 	os.Remove(tmpFilePath)
@@ -618,56 +642,58 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 	images := matchImage.FindAllString(content, -1)
+	// TODO 提升性能
+	for _, path := range getOutputPaths("textbundle") {
+		filePath := filepath.Join(path, title+".textbundle")
 
-	filePath := filepath.Join(markdownPath, title+".textbundle")
+		err = os.Mkdir(filePath, 0755)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	err = os.Mkdir(filePath, 0755)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+		for i, image := range images {
+			content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+			go func(i int, image string) {
+				image = matchReplace.ReplaceAllString(image, "")
 
-	for i, image := range images {
-		content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
-		go func(i int, image string) {
-			image = matchReplace.ReplaceAllString(image, "")
+				resp, err := http.Get(image)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				defer resp.Body.Close()
 
-			resp, err := http.Get(image)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					log.Println(err)
+					return
+				}
 
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Println(err)
-				return
-			}
+				err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+			}(i, image)
+		}
 
-			err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-		}(i, image)
-	}
+		err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	err = ioutil.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
-	if err != nil {
-		log.Println(err)
-		return
+		err = ioutil.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 
 	result, err := json.Marshal(struct {
@@ -696,55 +722,54 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 	}
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
-	path := r.Form.Get("path")
+	//path := r.Form.Get("path") //TODO 测试在 path 已经填写情况下
 	images := matchImage.FindAllString(content, -1)
+	// TODO 提升性能
+	for _, path := range getOutputPaths("assets") {
+		filePath := filepath.Join(path, title)
 
-	if path == "" {
-		path = markdownPath
-	}
-	filePath := filepath.Join(path, title)
+		err = os.Mkdir(filePath, 0755)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	err = os.Mkdir(filePath, 0755)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+		for i, image := range images {
+			content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+			go func(i int, image string) {
+				image = matchReplace.ReplaceAllString(image, "")
 
-	for i, image := range images {
-		content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
-		go func(i int, image string) {
-			image = matchReplace.ReplaceAllString(image, "")
+				resp, err := http.Get(image)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				defer resp.Body.Close()
 
-			resp, err := http.Get(image)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					log.Println(err)
+					return
+				}
 
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Println(err)
-				return
-			}
+				err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+			}(i, image)
+		}
 
-			err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-		}(i, image)
-	}
-
-	err = ioutil.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
-	if err != nil {
-		log.Println(err)
-		return
+		err = ioutil.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 
 	result, err := json.Marshal(struct {
