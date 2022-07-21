@@ -40,11 +40,14 @@ var (
 	mailTitle      string
 	receiverMail   string
 	kindleMail     string
-	checkVersion   bool
+	version        bool
 )
 
 var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
+	PreRun: func(cmd *cobra.Command, args []string) {
+		parseCutomizedFlags(cmd, args)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		http.HandleFunc("/verify", verifyHandle)
 		http.HandleFunc("/config", configHandle)
@@ -62,6 +65,56 @@ var rootCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 	},
+	DisableFlagParsing: true,
+}
+
+func parseCutomizedFlags(cmd *cobra.Command, args []string) {
+	for i := 0; i < len(args); i++ {
+		s := args[i]
+		if len(s) > 2 && s[:2] == "--" {
+			a := args[i+1:]
+			name := s[2:]
+			if len(name) == 0 || name[0] == '-' || name[0] == '=' {
+				continue
+			}
+			split := strings.SplitN(name, "=", 2)
+			name = split[0]
+			if strings.HasSuffix(name, "-path") && name != "sync-path" && name != "output-path" {
+				var value string
+				if len(split) == 2 {
+					value = split[1]
+					args = append(args[:i], args[i+1:]...)
+					i -= 1
+				} else if len(a) > 0 {
+					value = a[0]
+					args = append(args[:i], args[i+2:]...)
+					i -= 2
+				}
+				enhancedOutput = append(enhancedOutput, map[string]string{
+					"extension": strings.Replace(name, "-path", "", 1),
+					"path":      value})
+			}
+		}
+	}
+	cmd.DisableFlagParsing = false
+	err := cmd.ParseFlags(args)
+	if err != nil {
+		fmt.Println(err)
+		cmd.Help()
+		fmt.Println()
+		os.Exit(0)
+	}
+
+	if cmd.Flag("help").Value.String() == "true" {
+		cmd.Help()
+		fmt.Println()
+		os.Exit(0)
+	}
+
+	if cmd.Flag("version").Value.String() == "true" {
+		checkVersion()
+	}
+
 }
 
 func init() {
@@ -79,7 +132,7 @@ func init() {
 	rootCmd.Flags().StringVar(&mailTitle, "mail-title", "[简悦] - {{title}}", "mail title")
 	rootCmd.Flags().StringVar(&receiverMail, "receiver-mail", "", "receiver mail")
 	rootCmd.Flags().StringVar(&kindleMail, "kindle-mail", "", "kindle mail")
-	rootCmd.Flags().BoolVarP(&checkVersion, "version", "V", false, "check version")
+	rootCmd.Flags().BoolVarP(&version, "version", "V", false, "check version")
 
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
@@ -94,42 +147,42 @@ func init() {
 	viper.BindPFlag("kindleMail", rootCmd.Flags().Lookup("kindle-mail"))
 }
 
-func initConfig() {
-	if checkVersion {
-		log.Println("当前版本：", Version)
-		if Version == "(devel)" {
-			os.Exit(0)
-		}
-		resp, err := http.Get("https://api.github.com/repos/j1g5awi/simpread-sync/releases/latest")
-		if err != nil {
-			log.Fatal("检查更新失败：", err)
-		}
-		defer resp.Body.Close()
-		data, _ := ioutil.ReadAll(resp.Body)
-		remote := gjson.Get(string(data), "tag_name").String()
-		sp := regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)-?(.+)?`)
-		cur := sp.FindStringSubmatch(Version)
-		re := sp.FindStringSubmatch(remote)
-		for i := 1; i <= 3; i++ {
-			curSub, _ := strconv.Atoi(cur[i])
-			reSub, _ := strconv.Atoi(re[i])
-			if curSub < reSub {
-				log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
-				os.Exit(0)
-			} else if curSub > reSub {
-				os.Exit(0)
-			}
-		}
-		if cur[4] == "" || re[4] == "" {
-			if re[4] == "" && cur[4] != re[4] {
-				log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
-			}
-		} else if cur[4] < re[4] {
-			log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
-		}
+func checkVersion() {
+	log.Println("当前版本：", Version)
+	if Version == "(devel)" {
 		os.Exit(0)
 	}
+	resp, err := http.Get("https://api.github.com/repos/j1g5awi/simpread-sync/releases/latest")
+	if err != nil {
+		log.Fatal("检查更新失败：", err)
+	}
+	defer resp.Body.Close()
+	data, _ := ioutil.ReadAll(resp.Body)
+	remote := gjson.Get(string(data), "tag_name").String()
+	sp := regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)-?(.+)?`)
+	cur := sp.FindStringSubmatch(Version)
+	re := sp.FindStringSubmatch(remote)
+	for i := 1; i <= 3; i++ {
+		curSub, _ := strconv.Atoi(cur[i])
+		reSub, _ := strconv.Atoi(re[i])
+		if curSub < reSub {
+			log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+			os.Exit(0)
+		} else if curSub > reSub {
+			os.Exit(0)
+		}
+	}
+	if cur[4] == "" || re[4] == "" {
+		if re[4] == "" && cur[4] != re[4] {
+			log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+		}
+	} else if cur[4] < re[4] {
+		log.Printf("检测到最新版 %s，请前往 https://github.com/j1g5awi/simpread-sync/releases 下载", remote)
+	}
+	os.Exit(0)
+}
 
+func initConfig() {
 	if configFile != "" {
 		viper.SetConfigFile(configFile)
 	} else {
