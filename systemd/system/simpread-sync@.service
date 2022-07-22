@@ -17,7 +17,6 @@ RestartForceExitStatus=3 4
 ProtectSystem=full
 PrivateTmp=true
 SystemCallArchitectures=native
-MemoryDenyWriteExecute=true
 NoNewPrivileges=true
 
 [Install]
