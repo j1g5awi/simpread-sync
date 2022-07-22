@@ -47,6 +47,7 @@ var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
 	PreRun: func(cmd *cobra.Command, args []string) {
 		parseCutomizedFlags(cmd, args)
+		initConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		http.HandleFunc("/verify", verifyHandle)
@@ -118,8 +119,6 @@ func parseCutomizedFlags(cmd *cobra.Command, args []string) {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "config file")
 	rootCmd.Flags().IntVarP(&port, "port", "p", 7026, "port")
 	rootCmd.Flags().StringVar(&syncPath, "sync-path", "", "sync path")
@@ -196,12 +195,15 @@ func initConfig() {
 	port = viper.GetInt("port")
 	syncPath = viper.GetString("syncPath")
 	outputPath = viper.GetString("outputPath")
-	for _, i := range viper.Get("enhancedOutput").([]interface{}) {
-		tmpMap := make(map[string]string)
-		for k, v := range i.(map[string]interface{}) {
-			tmpMap[k] = v.(string)
+	enhancedOutputInterface := viper.Get("enhancedOutput")
+	if enhancedOutputInterface, ok := enhancedOutputInterface.([]interface{}); ok {
+		for _, i := range enhancedOutputInterface {
+			tmpMap := map[string]string{}
+			for k, v := range i.(map[string]interface{}) {
+				tmpMap[k] = v.(string)
+			}
+			enhancedOutput = append(enhancedOutput, tmpMap)
 		}
-		enhancedOutput = append(enhancedOutput, tmpMap)
 	}
 	smtpHost = viper.GetString("smtpHost")
 	smtpPort = viper.GetInt("smtpPort")
@@ -413,7 +415,6 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 	content := r.Form.Get("content")
 
 	suffix := path.Ext(title)[1:]
-	//TODO 测试标题带 tmp- 前缀的网页
 	if strings.HasPrefix(title, "tmp-") {
 		suffix = "tmp"
 	}
@@ -523,7 +524,6 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	//TODO 并发
 	for _, path := range getOutputPaths(out) {
 		cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(path, title+"."+out))
-		log.Println(cmd)
 		err = cmd.Run()
 		if err != nil {
 			log.Println(err)
