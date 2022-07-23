@@ -782,6 +782,9 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
 	path := r.Form.Get("path")
+	if path == "" {
+		path = outputPath
+	}
 	images := matchImage.FindAllString(content, -1)
 	// TODO 提升性能
 	for _, path := range getOutputPathsWithPath("assets", path) {
