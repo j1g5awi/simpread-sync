@@ -252,6 +252,10 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 }
 
 func getOutputPaths(extension string) []string {
+	return getOutputPathsWithPath(extension, outputPath)
+}
+
+func getOutputPathsWithPath(extension, path string) []string {
 	outputPaths := []string{}
 	for _, i := range enhancedOutput {
 		if extension == i["extension"] {
@@ -263,7 +267,7 @@ func getOutputPaths(extension string) []string {
 		}
 	}
 	if len(outputPaths) == 0 {
-		outputPaths = append(outputPaths, outputPath)
+		outputPaths = append(outputPaths, path)
 	}
 	return outputPaths
 }
@@ -775,10 +779,10 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 	}
 	title := r.Form.Get("title")
 	content := r.Form.Get("content")
-	//path := r.Form.Get("path") //TODO 测试在 path 已经填写情况下
+	path := r.Form.Get("path")
 	images := matchImage.FindAllString(content, -1)
 	// TODO 提升性能
-	for _, path := range getOutputPaths("assets") {
+	for _, path := range getOutputPathsWithPath("assets", path) {
 		filePath := filepath.Join(path, title)
 
 		err = os.Mkdir(filePath, 0755)
