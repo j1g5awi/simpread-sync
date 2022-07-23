@@ -219,6 +219,7 @@ func initConfig() {
 	if outputPath == "" {
 		outputPath = filepath.Join(syncPath, "output")
 	}
+	os.MkdirAll(outputPath, 0755)
 }
 
 // 未验证 json 返回 201
@@ -263,6 +264,7 @@ func getOutputPathsWithPath(extension, path string) []string {
 			if path == "" {
 				path = filepath.Join(outputPath, extension)
 			}
+			os.MkdirAll(path, 0755)
 			outputPaths = append(outputPaths, path)
 		}
 	}
