@@ -2,7 +2,7 @@ version: '3'
 
 services:
   simpread-sync:
-    image: ghcr.io/j1g5awi/simpread-sync:master
+    image: ghcr.io/j1g5awi/simpread-sync:alpine
     container_name: simpread-sync
     restart: always
     ports:
