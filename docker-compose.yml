@@ -3,9 +3,12 @@ version: '3'
 services:
   simpread-sync:
     image: ghcr.io/j1g5awi/simpread-sync:master
+    container_name: simpread-sync
     restart: always
     ports:
       - '7026:7026'
     volumes:
       - ~/simpread:/data
-    command: /usr/bin/simpread-sync --sync-path /data
+    environment:
+      SYNCPATH: /data
+      SIMPREAD_MDPATH:

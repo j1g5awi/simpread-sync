@@ -46,7 +46,8 @@ var (
 var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
 	PreRun: func(cmd *cobra.Command, args []string) {
-		parseCutomizedFlags(cmd, args)
+		parseCustomizedFlags(cmd, args)
+		parseCustomizedEnv()
 		initConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -69,7 +70,7 @@ var rootCmd = &cobra.Command{
 	DisableFlagParsing: true,
 }
 
-func parseCutomizedFlags(cmd *cobra.Command, args []string) {
+func parseCustomizedFlags(cmd *cobra.Command, args []string) {
 	for i := 0; i < len(args); i++ {
 		s := args[i]
 		if len(s) > 2 && s[:2] == "--" {
@@ -115,7 +116,21 @@ func parseCutomizedFlags(cmd *cobra.Command, args []string) {
 	if cmd.Flag("version").Value.String() == "true" {
 		checkVersion()
 	}
+}
 
+func parseCustomizedEnv() {
+	for _, env := range os.Environ() {
+		split := strings.SplitN(env, "=", 2)
+		name := split[0]
+		value := split[1]
+		if strings.HasPrefix(name, "SIMPREAD_") && strings.HasSuffix(name, "PATH") &&
+			name != "SYNCPATH" && name != "OUTPUTPATH" {
+			enhancedOutput = append(enhancedOutput, map[string]string{
+				"extension": strings.ToLower(
+					strings.Replace(strings.Replace(name, "PATH", "", 1), "SIMPREAD_", "", 1)),
+				"path": value})
+		}
+	}
 }
 
 func init() {
@@ -144,6 +159,8 @@ func init() {
 	viper.BindPFlag("mailTitle", rootCmd.Flags().Lookup("mail-title"))
 	viper.BindPFlag("receiverMail", rootCmd.Flags().Lookup("receiver-mail"))
 	viper.BindPFlag("kindleMail", rootCmd.Flags().Lookup("kindle-mail"))
+
+	viper.AutomaticEnv()
 }
 
 func checkVersion() {
