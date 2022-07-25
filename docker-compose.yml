@@ -10,5 +10,5 @@ services:
     volumes:
       - ~/simpread:/data
     environment:
-      SYNCPATH: /data
-      SIMPREAD_MDPATH:
+      SYNC_PATH: /data
+      OUTPUT_PATH_MD: ""

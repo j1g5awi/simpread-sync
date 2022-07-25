@@ -123,12 +123,10 @@ func parseCustomizedEnv() {
 		split := strings.SplitN(env, "=", 2)
 		name := split[0]
 		value := split[1]
-		if strings.HasPrefix(name, "SIMPREAD_") && strings.HasSuffix(name, "PATH") &&
-			name != "SYNCPATH" && name != "OUTPUTPATH" {
+		if strings.HasPrefix(name, "OUTPUT_PATH_") {
 			enhancedOutput = append(enhancedOutput, map[string]string{
-				"extension": strings.ToLower(
-					strings.Replace(strings.Replace(name, "PATH", "", 1), "SIMPREAD_", "", 1)),
-				"path": value})
+				"extension": strings.ToLower(strings.Replace(name, "OUTPUT_PATH_", "", 1)),
+				"path":      value})
 		}
 	}
 }
@@ -160,7 +158,17 @@ func init() {
 	viper.BindPFlag("receiverMail", rootCmd.Flags().Lookup("receiver-mail"))
 	viper.BindPFlag("kindleMail", rootCmd.Flags().Lookup("kindle-mail"))
 
-	viper.AutomaticEnv()
+	viper.BindEnv("port", "LISTEN_PORT")
+	viper.BindEnv("syncPath", "SYNC_PATH")
+	viper.BindEnv("outputPath", "OUTPUT_PATH")
+	viper.BindEnv("autoRemove", "AUTO_REMOVE")
+	viper.BindEnv("smtpHost", "SMTP_HOST")
+	viper.BindEnv("smtpPort", "SMTP_PORT")
+	viper.BindEnv("smtpUsername", "SMTP_USERNAME")
+	viper.BindEnv("smtpPassword", "SMTP_PASSWORD")
+	viper.BindEnv("mailTitle", "MAIL_TITLE")
+	viper.BindEnv("receiverMail", "MAIL_RECEIVER")
+	viper.BindEnv("kindleMail", "MAIL_KINDLE")
 }
 
 func checkVersion() {
