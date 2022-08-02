@@ -52,6 +52,7 @@ config.json 默认配置如下：
 
 `outputPath` 如果不填写，默认为 `syncPath` 下的 output 文件夹。
 
+你还可以使用Docker进行部署，参见[使用Docker部署简悦同步助手 · 命令行](https://github.com/Kenshin/simpread/discussions/4312)
 ## 如何更新
 
 使用 `./simpread-sync -V` 来检查当前版本。（如有更新则会自动提示）
