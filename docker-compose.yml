@@ -4,11 +4,13 @@ services:
   simpread-sync:
     image: ghcr.io/j1g5awi/simpread-sync:master
     container_name: simpread-sync
-    restart: always
-    ports:
-      - '7026:7026'
-    volumes:
-      - ~/simpread:/data
     environment:
-      SYNC_PATH: /data
-      OUTPUT_PATH_MD: ""
+      - TZ=Asia/Shanghai
+      - SYNC_PATH=/data
+      - OUTPUT_PATH=/data/output
+    ports:
+      - 7026:7026
+    volumes:
+      - ./data:/data
+      - ./output:/data/output
+    restart: unless-stopped
