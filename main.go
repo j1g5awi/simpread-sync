@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -181,7 +180,7 @@ func checkVersion() {
 		log.Fatal("检查更新失败：", err)
 	}
 	defer resp.Body.Close()
-	data, _ := ioutil.ReadAll(resp.Body)
+	data, _ := io.ReadAll(resp.Body)
 	remote := gjson.Get(string(data), "tag_name").String()
 	sp := regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)-?(.+)?`)
 	cur := sp.FindStringSubmatch(Version)
@@ -331,7 +330,7 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if data := r.Form.Get("config"); data != "" {
-			err := ioutil.WriteFile(filepath.Join(syncPath, "simpread_config.json"), []byte(data), 0644)
+			err := os.WriteFile(filepath.Join(syncPath, "simpread_config.json"), []byte(data), 0644)
 			if err != nil {
 				log.Println(err)
 				return
@@ -350,7 +349,7 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				unrdist = newUnrdist
-				fileInfo, err := ioutil.ReadDir(outputPath)
+				fileInfo, err := os.ReadDir(outputPath)
 				if err != nil {
 					log.Println(err)
 					return
@@ -380,7 +379,7 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Println("sync config from browser")
 		} else {
-			config, err := ioutil.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+			config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
 			if err != nil {
 				log.Println(err)
 				return
@@ -450,7 +449,7 @@ func plainHandle(w http.ResponseWriter, r *http.Request) {
 		suffix = "tmp"
 	}
 	for _, path := range getOutputPaths(suffix) {
-		err = ioutil.WriteFile(filepath.Join(path, title), []byte(content), 0644)
+		err = os.WriteFile(filepath.Join(path, title), []byte(content), 0644)
 		if err != nil {
 			log.Println(err)
 			continue //TODO 错误处理
@@ -543,7 +542,7 @@ func convertHandle(w http.ResponseWriter, r *http.Request) {
 	out := r.Form.Get("out") //epub
 
 	tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, in))
-	err = ioutil.WriteFile(tmpFilePath, []byte(content), 0644)
+	err = os.WriteFile(tmpFilePath, []byte(content), 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -593,7 +592,7 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	root := r.Form.Get("root")
 
 	tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.html", title))
-	err = ioutil.WriteFile(tmpFilePath, []byte(content), 0644)
+	err = os.WriteFile(tmpFilePath, []byte(content), 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -639,7 +638,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var files []string
-	fileInfo, err := ioutil.ReadDir(outputPath)
+	fileInfo, err := os.ReadDir(outputPath)
 	if err != nil {
 		log.Println(err)
 		return
@@ -687,7 +686,7 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if title != "" {
-			result, err = ioutil.ReadFile(filepath.Join(outputPath, title))
+			result, err = os.ReadFile(filepath.Join(outputPath, title))
 			if err != nil {
 				log.Println(err)
 				return
@@ -753,13 +752,13 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 				}
 				defer resp.Body.Close()
 
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 
-				err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+				err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
 				if err != nil {
 					log.Println(err)
 					return
@@ -767,13 +766,13 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 			}(i, image)
 		}
 
-		err = ioutil.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
+		err = os.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		err = ioutil.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
+		err = os.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
 		if err != nil {
 			log.Println(err)
 			return
@@ -838,13 +837,13 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 				}
 				defer resp.Body.Close()
 
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 
-				err = ioutil.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+				err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
 				if err != nil {
 					log.Println(err)
 					return
@@ -852,7 +851,7 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 			}(i, image)
 		}
 
-		err = ioutil.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
+		err = os.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
 		if err != nil {
 			log.Println(err)
 			return
