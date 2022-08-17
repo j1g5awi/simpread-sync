@@ -229,6 +229,7 @@ func initConfig() {
 			enhancedOutput = append(enhancedOutput, tmpMap)
 		}
 	}
+	autoRemove = viper.GetBool("autoRemove")
 	smtpHost = viper.GetString("smtpHost")
 	smtpPort = viper.GetInt("smtpPort")
 	smtpUsername = viper.GetString("smtpUsername")
