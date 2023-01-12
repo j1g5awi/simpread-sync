@@ -17,10 +17,12 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"gopkg.in/gomail.v2"
 )
 
@@ -50,20 +52,39 @@ var rootCmd = &cobra.Command{
 		initConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		http.HandleFunc("/verify", verifyHandle)
-		http.HandleFunc("/config", configHandle)
-		http.HandleFunc("/plain", plainHandle)
-		http.HandleFunc("/mail", mailHandle)
-		http.HandleFunc("/convert", convertHandle)
-		http.HandleFunc("/wkhtmltopdf", wkhtmltopdfHandle)
-		http.HandleFunc("/reading/", readingHandle)
-		http.HandleFunc("/proxy", proxyHandle)
-		http.HandleFunc("/textbundle", textbundleHandle)
-		http.HandleFunc("/notextbundle", notextbundleHandle)
+		localSync := http.NewServeMux()
+		localSync.HandleFunc("/verify", verifyHandle)
+		localSync.HandleFunc("/config", configHandle)
+		localSync.HandleFunc("/plain", plainHandle)
+		localSync.HandleFunc("/mail", mailHandle)
+		localSync.HandleFunc("/convert", convertHandle)
+		localSync.HandleFunc("/wkhtmltopdf", wkhtmltopdfHandle)
+		localSync.HandleFunc("/reading/", readingHandle)
+		localSync.HandleFunc("/proxy", proxyHandle)
+		localSync.HandleFunc("/textbundle", textbundleHandle)
+		localSync.HandleFunc("/notextbundle", notextbundleHandle)
+		// go func() {
+		// 	err := http.ListenAndServe(fmt.Sprint(":", port), localSync)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// }()
 
-		err := http.ListenAndServe(fmt.Sprint(":", port), nil)
-		if err != nil {
-			log.Fatal(err)
+		API := http.NewServeMux()
+		API.HandleFunc("/add", APIaddHandle)
+		API.HandleFunc("/adds", APIaddsHandle)
+		API.HandleFunc("/new", APIaddHandle)
+		API.HandleFunc("/webhook", APIaddHandle)
+		API.HandleFunc("/reading/", APIreadingHandle)
+		API.HandleFunc("/list", APIlistHandle)
+		go func() {
+			err := http.ListenAndServe(fmt.Sprint(":", 7027), API)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+
+		for {
 		}
 	},
 	DisableFlagParsing: true,
@@ -245,6 +266,16 @@ func initConfig() {
 		outputPath = filepath.Join(syncPath, "output")
 	}
 	os.MkdirAll(outputPath, 0755)
+
+	config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	unrdist = make(map[int]struct{}, len(gjson.GetBytes(config, "unrdist").Array()))
+	for _, unrd := range gjson.GetBytes(config, "unrdist").Array() {
+		unrdist[int(unrd.Get("idx").Int())] = struct{}{}
+	}
 }
 
 // 未验证 json 返回 201
@@ -893,6 +924,305 @@ func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
 		log.Println("proxy error:", err)
+		return
+	}
+}
+
+func APIaddHandle(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	url := r.Form.Get("url")
+	title := r.Form.Get("title")
+	desc := r.Form.Get("desc")
+	tags := strings.Split(r.Form.Get("tags"), ",")
+	note := r.Form.Get("note")
+
+	config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	idx := int(gjson.GetBytes(config, "unrdist.#.idx|0").Int()) + 1
+	unrdist[idx] = struct{}{}
+	tmp := gjson.GetBytes(config, "unrdist|@reverse").String()
+	tmp, err = sjson.Set(tmp, "-1", map[string]interface{}{
+		"create":  time.Now().Format("2006年01月02日 15:04:05"), //2022年10月14日 19:59:58
+		"desc":    desc,
+		"favicon": "",
+		"idx":     idx,
+		"img":     "",
+		"note":    note,
+		"tags":    tags,
+		"title":   title,
+		"url":     url})
+	tmp = gjson.Get(tmp, "@this|@reverse").Raw
+	config, err = sjson.SetRawBytes(config, "unrdist", []byte(tmp))
+	err = os.WriteFile(filepath.Join(syncPath, "simpread_config.json"), config, 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	result, err := json.Marshal(struct {
+		Code int `json:"code"`
+	}{Code: 201})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func APIaddsHandle(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	urls := strings.Split(r.Form.Get("urls"), ";;;")
+	titles := strings.Split(r.Form.Get("titles"), ";;;")
+	tags := strings.Split(r.Form.Get("tags"), ",")
+
+	config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	idx := int(gjson.GetBytes(config, "unrdist.#.idx|0").Int()) + 1
+	tmp := gjson.GetBytes(config, "unrdist|@reverse").String()
+	for i, url := range urls {
+		unrdist[idx] = struct{}{}
+		tmp, err = sjson.Set(tmp, "-1", map[string]interface{}{
+			"create":  time.Now().Format("2006年01月02日 15:04:05"), //2022年10月14日 19:59:58
+			"desc":    "",
+			"favicon": "",
+			"idx":     idx,
+			"img":     "",
+			"note":    "",
+			"tags":    tags,
+			"title":   titles[i],
+			"url":     url})
+		idx += 1
+	}
+	tmp = gjson.Get(tmp, "@this|@reverse").Raw
+	config, err = sjson.SetRawBytes(config, "unrdist", []byte(tmp))
+	err = os.WriteFile(filepath.Join(syncPath, "simpread_config.json"), config, 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	result, err := json.Marshal(struct {
+		Code int `json:"code"`
+	}{Code: 201})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func APIreadingHandle(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	var files []map[string]string
+	fileInfo, err := os.ReadDir(outputPath)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	for _, file := range fileInfo {
+		if !file.IsDir() {
+			fileinfo, _ := file.Info()
+			files = append(files, map[string]string{
+				"title":  file.Name(),
+				"create": fileinfo.ModTime().Format("Mon, 02 Jan 2006 15:04:05 MST")})
+		}
+	}
+
+	var result []byte
+	query := r.Form.Get("title")
+	if query == "index" {
+		w.Header().Set("content-type", "application/json")
+		result, err = json.Marshal(struct {
+			Data []map[string]string `json:"data"`
+		}{Data: files})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("API reading index")
+	} else {
+		id := strings.Replace(r.URL.Path, "/reading/", "", 1)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		suffix := ".html"
+		var title string
+		for _, file := range files {
+			if (strings.HasPrefix(file["title"], id+"-") &&
+				strings.HasSuffix(file["title"], suffix) &&
+				!strings.Contains(file["title"], "@annote")) ||
+				file["title"] == id+suffix ||
+				file["title"] == query+suffix {
+				title = file["title"]
+				break
+			}
+		}
+
+		if title != "" {
+			result, err = os.ReadFile(filepath.Join(outputPath, title))
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			log.Println("API reading file:", title)
+		} else {
+			w.Header().Set("content-type", "application/json")
+			result, err = json.Marshal(struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}{Code: 404, Message: "没有找到对应的内容"})
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+	}
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func APIlistHandle(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	filter := r.Form.Get("filter")
+	value := r.Form.Get("value")
+	var result []byte
+	switch filter {
+	case "all":
+		config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		unrdist := gjson.GetBytes(config, "unrdist").Array()
+		tmp := `{"data": []}`
+		for i := 0; i < 20 && i < len(unrdist); i++ {
+			tmp, _ = sjson.SetRaw(tmp, "data.-1", unrdist[i].Raw)
+		}
+		result = []byte(tmp)
+		w.Header().Set("content-type", "application/json")
+	case "daily":
+		config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		unrdist := gjson.GetBytes(config, "unrdist").Array()
+		now := time.Now()
+		tmp := `{"data": []}`
+		for _, unrd := range unrdist {
+			create, _ := time.Parse("2006年01月02日 15:04:05", unrd.Get("create").String())
+			if create.Year() == now.Year() && create.Month() == now.Month() &&
+				create.Day() == now.Day() {
+				tmp, _ = sjson.SetRaw(tmp, "data.-1", unrd.Raw)
+			}
+		}
+		result = []byte(tmp)
+		w.Header().Set("content-type", "application/json")
+	case "dr":
+		config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		tmp := `{"data": []}`
+		for _, unrd := range gjson.GetBytes(config, `unrdist.#(tags.#(=="dr"))`).Array() {
+			tmp, _ = sjson.SetRaw(tmp, "data.-1", unrd.Raw)
+		}
+		result = []byte(tmp)
+		w.Header().Set("content-type", "application/json")
+	case "reading":
+		var files []map[string]string
+		fileInfo, err := os.ReadDir(outputPath)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		for _, file := range fileInfo {
+			if !file.IsDir() {
+				fileinfo, _ := file.Info()
+				files = append(files, map[string]string{
+					"title":  file.Name(),
+					"create": fileinfo.ModTime().Format("Mon, 02 Jan 2006 15:04:05 MST")})
+			}
+		}
+		w.Header().Set("content-type", "application/json")
+		result, err = json.Marshal(struct {
+			Data []map[string]string `json:"data"`
+		}{Data: files})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("API reading index")
+	case "tag":
+		config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		tmp := `{"data": []}`
+		for _, unrd := range gjson.GetBytes(config, fmt.Sprintf(`unrdist.#(tags.#(=="%s"))`, value)).
+			Array() {
+			tmp, _ = sjson.SetRaw(tmp, "data.-1", unrd.Raw)
+		}
+		result = []byte(tmp)
+		w.Header().Set("content-type", "application/json")
+	case "search":
+		config, err := os.ReadFile(filepath.Join(syncPath, "simpread_config.json"))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		unrdist := gjson.GetBytes(config, "unrdist").Array()
+		tmp := `{"data": []}`
+		for _, unrd := range unrdist {
+			if strings.Contains(unrd.Get("title").String(), value) ||
+				strings.Contains(unrd.Get("desc").String(), value) ||
+				strings.Contains(unrd.Get("note").String(), value) {
+				tmp, _ = sjson.SetRaw(tmp, "data.-1", unrd.Raw)
+			}
+		}
+		result = []byte(tmp)
+	}
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
 		return
 	}
 }

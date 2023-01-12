@@ -5,7 +5,8 @@ go 1.18
 require (
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/viper v1.10.1
-	github.com/tidwall/gjson v1.14.0
+	github.com/tidwall/gjson v1.14.2
+	github.com/tidwall/sjson v1.2.5
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
 
