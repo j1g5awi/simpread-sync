@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -42,6 +43,7 @@ var (
 	receiverMail   string
 	kindleMail     string
 	version        bool
+	uid            string
 )
 
 var rootCmd = &cobra.Command{
@@ -63,12 +65,12 @@ var rootCmd = &cobra.Command{
 		localSync.HandleFunc("/proxy", proxyHandle)
 		localSync.HandleFunc("/textbundle", textbundleHandle)
 		localSync.HandleFunc("/notextbundle", notextbundleHandle)
-		// go func() {
-		// 	err := http.ListenAndServe(fmt.Sprint(":", port), localSync)
-		// 	if err != nil {
-		// 		log.Fatal(err)
-		// 	}
-		// }()
+		go func() {
+			err := http.ListenAndServe(fmt.Sprint(":", port), localSync)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
 
 		API := http.NewServeMux()
 		API.HandleFunc("/add", APIaddHandle)
@@ -165,6 +167,7 @@ func init() {
 	rootCmd.Flags().StringVar(&receiverMail, "receiver-mail", "", "receiver mail")
 	rootCmd.Flags().StringVar(&kindleMail, "kindle-mail", "", "kindle mail")
 	rootCmd.Flags().BoolVarP(&version, "version", "V", false, "check version")
+	rootCmd.Flags().StringVarP(&uid, "uid", "u", "", "user id")
 
 	viper.BindPFlag("port", rootCmd.Flags().Lookup("port"))
 	viper.BindPFlag("syncPath", rootCmd.Flags().Lookup("sync-path"))
@@ -177,6 +180,7 @@ func init() {
 	viper.BindPFlag("mailTitle", rootCmd.Flags().Lookup("mail-title"))
 	viper.BindPFlag("receiverMail", rootCmd.Flags().Lookup("receiver-mail"))
 	viper.BindPFlag("kindleMail", rootCmd.Flags().Lookup("kindle-mail"))
+	viper.BindPFlag("uid", rootCmd.Flags().Lookup("uid"))
 
 	viper.BindEnv("port", "LISTEN_PORT")
 	viper.BindEnv("syncPath", "SYNC_PATH")
@@ -189,6 +193,7 @@ func init() {
 	viper.BindEnv("mailTitle", "MAIL_TITLE")
 	viper.BindEnv("receiverMail", "MAIL_RECEIVER")
 	viper.BindEnv("kindleMail", "MAIL_KINDLE")
+	viper.BindEnv("uid", "UID")
 }
 
 func checkVersion() {
@@ -258,6 +263,7 @@ func initConfig() {
 	mailTitle = viper.GetString("mailTitle")
 	receiverMail = viper.GetString("receiverMail")
 	kindleMail = viper.GetString("kindleMail")
+	uid = viper.GetString("uid")
 
 	if syncPath == "" {
 		log.Fatal("未读取到 syncPath！")
@@ -278,9 +284,9 @@ func initConfig() {
 	}
 }
 
-// 未验证 json 返回 201
-// 已验证 json 返回 403
-// 这里无论如何都返回成功，有其他用处以后再说
+// 本地未存储 uid 返回 {"code": 201}
+// 本地 uid 与 header 中的 uid 一致 json 返回 {"code":403,"status":"same"}
+// 本地 uid 与 header 中的 uid 不一致 json 返回 {"code":403,"status":"uid"}
 func verifyHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
@@ -288,24 +294,74 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	result, err := json.Marshal(struct {
-		Code   int    `json:"code"`
-		Status string `json:"status"`
-	}{
-		Code:   403,
-		Status: "same",
-	})
-	if err != nil {
-		log.Println(err)
-		return
+	var result []byte
+	if uid != "" && r.Header.Get("uid") == uid {
+		result, err = json.Marshal(struct {
+			Code   int    `json:"code"`
+			Status string `json:"status"`
+		}{
+			Code:   403,
+			Status: "same",
+		})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	} else if uid != "" {
+		result, err = json.Marshal(struct {
+			Code   int    `json:"code"`
+			Status string `json:"status"`
+		}{
+			Code:   403,
+			Status: "uid",
+		})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	} else if r.Header.Get("uid") != "" {
+		uid = r.Header.Get("uid")
+		result, err = json.Marshal(struct {
+			Code int `json:"code"`
+		}{
+			Code: 201,
+		})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("verify success")
 	}
-
 	_, err = w.Write(result)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	log.Println("verify success")
+}
+
+func checkUid(w http.ResponseWriter, r *http.Request) error {
+	if uid != "" && r.Header.Get("uid") == uid {
+		return nil
+	}
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	result, err := json.Marshal(struct {
+		Code   int    `json:"code"`
+		Status string `json:"status"`
+	}{
+		Code:   401,
+		Status: "uid",
+	})
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	_, err = w.Write(result)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return errors.New("uid error")
 }
 
 func getOutputPaths(extension string) []string {
@@ -352,6 +408,8 @@ var unrdist map[int]struct{}
 
 // 如果浏览器插件的设置项更改了，它会发一个 key 为 config 的请求，json 返回 200
 // 剩余情况下，返回一个 key 为 result 的 json
+// 本来还有个检测 syncPath 是否配置，但命令行启动就检测过了
+// 请求压根没带 uid（因为 config 里有？）
 func configHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	if syncPath != "" {
@@ -464,153 +522,170 @@ func configHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// 校验 uid
 func plainHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 
-	err := myParseForm(r)
-	if err != nil {
-		log.Println(err)
+	if err := checkUid(w, r); err != nil {
 		return
-	}
-
-	title := r.Form.Get("title")
-	content := r.Form.Get("content")
-
-	suffix := path.Ext(title)[1:]
-	if strings.HasPrefix(title, "tmp-") {
-		suffix = "tmp"
-	}
-	for _, path := range getOutputPaths(suffix) {
-		err = os.WriteFile(filepath.Join(path, title), []byte(content), 0644)
+	} else {
+		err := myParseForm(r)
 		if err != nil {
 			log.Println(err)
-			continue //TODO 错误处理
+			return
+		}
+
+		title := r.Form.Get("title")
+		content := r.Form.Get("content")
+
+		suffix := path.Ext(title)[1:]
+		if strings.HasPrefix(title, "tmp-") {
+			suffix = "tmp"
+		}
+		for _, path := range getOutputPaths(suffix) {
+			err = os.WriteFile(filepath.Join(path, title), []byte(content), 0644)
+			if err != nil {
+				log.Println(err)
+				continue //TODO 错误处理
+			}
+		}
+
+		result, err := json.Marshal(struct {
+			Status int `json:"status"`
+		}{Status: 200})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("save file:", title)
+
+		_, err = w.Write(result)
+		if err != nil {
+			log.Println(err)
+			return
 		}
 	}
-
-	result, err := json.Marshal(struct {
-		Status int `json:"status"`
-	}{Status: 200})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	_, err = w.Write(result)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	log.Println("save file:", title)
 }
 
+// 校验 uid
 func mailHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	err := r.ParseForm()
-	if err != nil {
-		log.Println(err)
+
+	if err := checkUid(w, r); err != nil {
 		return
-	}
-	// 这里偷懒直接替换文本
-	title := strings.ReplaceAll(mailTitle, "{{title}}", r.Form.Get("title"))
-
-	content := r.Form.Get("content")
-	attach := r.Form.Get("attach")
-
-	d := gomail.NewDialer(smtpHost, smtpPort, smtpUsername, smtpPassword)
-	s, err := d.Dial()
-	if err != nil {
-		panic(err)
-	}
-
-	m := gomail.NewMessage()
-	m.SetHeader("From", smtpUsername)
-	m.SetHeader("To", receiverMail)
-	m.SetHeader("Subject", title)
-	m.SetBody("text/html", content)
-
-	var attachPath string
-	if attach != "" {
-		attachPath = filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, attach))
-		m.Attach(attachPath)
-	}
-
-	err = gomail.Send(s, m)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	if attach != "" {
-		os.Remove(attachPath)
-	}
-
-	result, err := json.Marshal(struct {
-		Status int `json:"status"`
-	}{Status: 200})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	_, err = w.Write(result)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	log.Println("send mail:", title)
-}
-
-func convertHandle(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("content-type", "application/json")
-	err := r.ParseForm()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	title := r.Form.Get("title")
-	content := r.Form.Get("content")
-	in := r.Form.Get("in")   //md
-	out := r.Form.Get("out") //epub
-
-	tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, in))
-	err = os.WriteFile(tmpFilePath, []byte(content), 0644)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	pandoc := "pandoc"
-	if runtime.GOOS == "darwin" {
-		pandoc = "/usr/local/bin/pandoc"
-	}
-	//TODO 并发
-	for _, path := range getOutputPaths(out) {
-		cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(path, title+"."+out))
-		err = cmd.Run()
+	} else {
+		err := r.ParseForm()
 		if err != nil {
 			log.Println(err)
-			continue //TODO 错误处理
+			return
 		}
-	}
+		// 这里偷懒直接替换文本
+		title := strings.ReplaceAll(mailTitle, "{{title}}", r.Form.Get("title"))
 
-	os.Remove(tmpFilePath)
+		content := r.Form.Get("content")
+		attach := r.Form.Get("attach")
 
-	result, err := json.Marshal(struct {
-		Status int `json:"status"`
-	}{Status: 200})
-	if err != nil {
-		log.Println(err)
-		return
-	}
+		d := gomail.NewDialer(smtpHost, smtpPort, smtpUsername, smtpPassword)
+		s, err := d.Dial()
+		if err != nil {
+			panic(err)
+		}
 
-	_, err = w.Write(result)
-	if err != nil {
-		log.Println(err)
-		return
+		m := gomail.NewMessage()
+		m.SetHeader("From", smtpUsername)
+		m.SetHeader("To", receiverMail)
+		m.SetHeader("Subject", title)
+		m.SetBody("text/html", content)
+
+		var attachPath string
+		if attach != "" {
+			attachPath = filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, attach))
+			m.Attach(attachPath)
+		}
+
+		err = gomail.Send(s, m)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if attach != "" {
+			os.Remove(attachPath)
+		}
+
+		result, err := json.Marshal(struct {
+			Status int `json:"status"`
+		}{Status: 200})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		_, err = w.Write(result)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("send mail:", title)
 	}
-	log.Println("convert file:", title)
 }
 
+// 校验 uid
+func convertHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+
+	if err := checkUid(w, r); err != nil {
+		return
+	} else {
+		err := r.ParseForm()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		title := r.Form.Get("title")
+		content := r.Form.Get("content")
+		in := r.Form.Get("in")   //md
+		out := r.Form.Get("out") //epub
+
+		tmpFilePath := filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, in))
+		err = os.WriteFile(tmpFilePath, []byte(content), 0644)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		pandoc := "pandoc"
+		if runtime.GOOS == "darwin" {
+			pandoc = "/usr/local/bin/pandoc"
+		}
+		//TODO 并发
+		for _, path := range getOutputPaths(out) {
+			cmd := exec.Command(pandoc, tmpFilePath, "-o", filepath.Join(path, title+"."+out))
+			err = cmd.Run()
+			if err != nil {
+				log.Println(err)
+				continue //TODO 错误处理
+			}
+		}
+
+		os.Remove(tmpFilePath)
+
+		result, err := json.Marshal(struct {
+			Status int `json:"status"`
+		}{Status: 200})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		_, err = w.Write(result)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println("convert file:", title)
+	}
+}
+
+// 不校验 uid
 func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	err := r.ParseForm()
@@ -662,6 +737,7 @@ func wkhtmltopdfHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println("wkhtmltopdf:", title)
 }
 
+// 请求压根没带 uid
 func readingHandle(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
@@ -747,163 +823,175 @@ func readingHandle(w http.ResponseWriter, r *http.Request) {
 var matchImage = regexp.MustCompile(`(?i)\!\[(\S+)?\]\(http(s)?:\/\/[^)]+\)`)
 var matchReplace = regexp.MustCompile(`^!\[(\S+)?\]\(|\)$`)
 
+// 校验 uid
 func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	err := r.ParseForm()
-	if err != nil {
-		log.Println(err)
+
+	if err := checkUid(w, r); err != nil {
 		return
-	}
-	title := r.Form.Get("title")
-	content := r.Form.Get("content")
-	images := matchImage.FindAllString(content, -1)
-	// TODO 提升性能
-	for _, path := range getOutputPaths("textbundle") {
-		filePath := filepath.Join(path, title+".textbundle")
-
-		err = os.Mkdir(filePath, 0755)
+	} else {
+		err := r.ParseForm()
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+		title := r.Form.Get("title")
+		content := r.Form.Get("content")
+		images := matchImage.FindAllString(content, -1)
+		// TODO 提升性能
+		for _, path := range getOutputPaths("textbundle") {
+			filePath := filepath.Join(path, title+".textbundle")
+
+			err = os.Mkdir(filePath, 0755)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			for i, image := range images {
+				content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+				go func(i int, image string) {
+					image = matchReplace.ReplaceAllString(image, "")
+
+					resp, err := http.Get(image)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					defer resp.Body.Close()
+
+					body, err := io.ReadAll(resp.Body)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+
+					err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+				}(i, image)
+			}
+
+			err = os.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			err = os.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+
+		result, err := json.Marshal(struct {
+			Status int `json:"status"`
+		}{Status: 200})
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		for i, image := range images {
-			content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
-			go func(i int, image string) {
-				image = matchReplace.ReplaceAllString(image, "")
-
-				resp, err := http.Get(image)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-				defer resp.Body.Close()
-
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-			}(i, image)
-		}
-
-		err = os.WriteFile(filepath.Join(filePath, "info.json"), []byte(`{"transient":true,"type":"net.daringfireball.markdown","creatorIdentifier":"pro.simpread","version":2}`), 0644)
+		_, err = w.Write(result)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-
-		err = os.WriteFile(filepath.Join(filePath, "text.markdown"), []byte(content), 0644)
-		if err != nil {
-			log.Println(err)
-			return
-		}
+		log.Println("save textbundle:", title)
 	}
-
-	result, err := json.Marshal(struct {
-		Status int `json:"status"`
-	}{Status: 200})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	_, err = w.Write(result)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	log.Println("save textbundle:", title)
 }
 
+// 校验 uid
 // 懒得精简代码，复制粘贴
 func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	err := r.ParseForm()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	title := r.Form.Get("title")
-	content := r.Form.Get("content")
-	path := r.Form.Get("path")
-	if path == "" {
-		path = outputPath
-	}
-	images := matchImage.FindAllString(content, -1)
-	// TODO 提升性能
-	for _, path := range getOutputPathsWithPath("assets", path) {
-		filePath := filepath.Join(path, title)
 
-		err = os.Mkdir(filePath, 0755)
+	if err := checkUid(w, r); err != nil {
+		return
+	} else {
+		err := r.ParseForm()
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+		title := r.Form.Get("title")
+		content := r.Form.Get("content")
+		path := r.Form.Get("path")
+		if path == "" {
+			path = outputPath
+		}
+		images := matchImage.FindAllString(content, -1)
+		// TODO 提升性能
+		for _, path := range getOutputPathsWithPath("assets", path) {
+			filePath := filepath.Join(path, title)
+
+			err = os.Mkdir(filePath, 0755)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			err = os.Mkdir(filepath.Join(filePath, "assets"), 0755)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			for i, image := range images {
+				content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
+				go func(i int, image string) {
+					image = matchReplace.ReplaceAllString(image, "")
+
+					resp, err := http.Get(image)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					defer resp.Body.Close()
+
+					body, err := io.ReadAll(resp.Body)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+
+					err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+				}(i, image)
+			}
+
+			err = os.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+
+		result, err := json.Marshal(struct {
+			Status int `json:"status"`
+		}{Status: 200})
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		for i, image := range images {
-			content = strings.Replace(content, image, fmt.Sprint("![](assets/", i, ".png)"), 1)
-			go func(i int, image string) {
-				image = matchReplace.ReplaceAllString(image, "")
-
-				resp, err := http.Get(image)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-				defer resp.Body.Close()
-
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				err = os.WriteFile(filepath.Join(filePath, "assets", fmt.Sprint(i, ".png")), body, 0644)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-			}(i, image)
-		}
-
-		err = os.WriteFile(filepath.Join(filePath, fmt.Sprint(title, ".md")), []byte(content), 0644)
+		_, err = w.Write(result)
 		if err != nil {
 			log.Println(err)
 			return
 		}
+		log.Println("save notextbundle:", title)
 	}
-
-	result, err := json.Marshal(struct {
-		Status int `json:"status"`
-	}{Status: 200})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	_, err = w.Write(result)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	log.Println("save notextbundle:", title)
 }
 
 func proxyHandle(w http.ResponseWriter, r *http.Request) {
