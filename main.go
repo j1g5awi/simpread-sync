@@ -321,6 +321,7 @@ func verifyHandle(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Header.Get("uid") != "" {
 		uid = r.Header.Get("uid")
+		viper.WriteConfig()
 		result, err = json.Marshal(struct {
 			Code int `json:"code"`
 		}{
