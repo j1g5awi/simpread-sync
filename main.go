@@ -46,6 +46,11 @@ var (
 	uid            string
 )
 
+var tr := &http.Transport{
+	TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
+}
+var client := &http.Client{Transport: tr}
+
 var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
 	PreRun: func(cmd *cobra.Command, args []string) {
@@ -859,7 +864,7 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 				go func(i int, image string) {
 					image = matchReplace.ReplaceAllString(image, "")
 
-					resp, err := http.Get(image)
+					resp, err := client.Get(image)
 					if err != nil {
 						log.Println(err)
 						return
