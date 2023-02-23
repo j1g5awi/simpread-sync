@@ -50,7 +50,7 @@ var (
 var tr = &http.Transport{
 	TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
 }
-var client := &http.Client{Transport: tr}
+var client = &http.Client{Transport: tr}
 
 var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
