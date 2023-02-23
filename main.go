@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -45,6 +46,11 @@ var (
 	version        bool
 	uid            string
 )
+
+var tr = &http.Transport{
+	TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
+}
+var client = &http.Client{Transport: tr}
 
 var rootCmd = &cobra.Command{
 	Use: "simpread-sync",
@@ -859,7 +865,7 @@ func textbundleHandle(w http.ResponseWriter, r *http.Request) {
 				go func(i int, image string) {
 					image = matchReplace.ReplaceAllString(image, "")
 
-					resp, err := http.Get(image)
+					resp, err := client.Get(image)
 					if err != nil {
 						log.Println(err)
 						return
