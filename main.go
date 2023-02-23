@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -46,7 +47,7 @@ var (
 	uid            string
 )
 
-var tr := &http.Transport{
+var tr = &http.Transport{
 	TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
 }
 var client := &http.Client{Transport: tr}
