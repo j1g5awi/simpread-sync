@@ -956,7 +956,7 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 				go func(i int, image string) {
 					image = matchReplace.ReplaceAllString(image, "")
 
-					resp, err := http.Get(image)
+					resp, err := client.Get(image)
 					if err != nil {
 						log.Println(err)
 						return
