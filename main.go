@@ -1003,7 +1003,7 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 
 func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	url := r.URL.Query().Get("url")
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Println("proxy error:", err)
 		return
