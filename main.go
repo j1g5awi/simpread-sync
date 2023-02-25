@@ -48,7 +48,7 @@ var (
 )
 
 var tr = &http.Transport{
-	TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 }
 var client = &http.Client{Transport: tr}
 
@@ -85,14 +85,9 @@ var rootCmd = &cobra.Command{
 		API.HandleFunc("/webhook", APIaddHandle)
 		API.HandleFunc("/reading/", APIreadingHandle)
 		API.HandleFunc("/list", APIlistHandle)
-		go func() {
-			err := http.ListenAndServe(fmt.Sprint(":", 7027), API)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
-
-		for {
+		err := http.ListenAndServe(fmt.Sprint(":", 7027), API)
+		if err != nil {
+			log.Fatal(err)
 		}
 	},
 	DisableFlagParsing: true,
