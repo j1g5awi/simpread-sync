@@ -951,7 +951,7 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 				go func(i int, image string) {
 					image = matchReplace.ReplaceAllString(image, "")
 
-					resp, err := http.Get(image)
+					resp, err := client.Get(image)
 					if err != nil {
 						log.Println(err)
 						return
@@ -998,7 +998,7 @@ func notextbundleHandle(w http.ResponseWriter, r *http.Request) {
 
 func proxyHandle(w http.ResponseWriter, r *http.Request) {
 	url := r.URL.Query().Get("url")
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Println("proxy error:", err)
 		return
