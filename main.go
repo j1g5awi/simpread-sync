@@ -581,38 +581,39 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 			return
 		}
-		// 这里偷懒直接替换文本
-		title := strings.ReplaceAll(mailTitle, "{{title}}", r.Form.Get("title"))
 
+		title := r.Form.Get("title")
 		content := r.Form.Get("content")
 		attach := r.Form.Get("attach")
 
 		d := gomail.NewDialer(smtpHost, smtpPort, smtpUsername, smtpPassword)
+		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 		s, err := d.Dial()
-		if err != nil {
-			panic(err)
-		}
-
-		m := gomail.NewMessage()
-		m.SetHeader("From", smtpUsername)
-		m.SetHeader("To", receiverMail)
-		m.SetHeader("Subject", title)
-		m.SetBody("text/html", content)
-
-		var attachPath string
-		if attach != "" {
-			attachPath = filepath.Join(syncPath, fmt.Sprintf("tmp-%s.%s", title, attach))
-			m.Attach(attachPath)
-		}
-
-		err = gomail.Send(s, m)
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		if attach != "" {
-			os.Remove(attachPath)
+		m := gomail.NewMessage()
+		m.SetHeader("From", smtpUsername)
+		var attachPath string
+		if content == "kindle" {
+			m.SetHeader("To", kindleMail)
+			attachPath = filepath.Join(outputPath, fmt.Sprintf("tmp-%s.%s", title, attach))
+			m.Attach(attachPath)
+			defer os.Remove(attachPath)
+		} else {
+			// 这里偷懒直接替换文本
+			title = strings.ReplaceAll(mailTitle, "{{title}}", title)
+			m.SetHeader("To", receiverMail)
+		}
+		m.SetHeader("Subject", title)
+		m.SetBody("text/html", content)
+
+		err = gomail.Send(s, m)
+		if err != nil {
+			log.Println(err)
+			return
 		}
 
 		result, err := json.Marshal(struct {
