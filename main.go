@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -600,7 +601,8 @@ func mailHandle(w http.ResponseWriter, r *http.Request) {
 		if content == "kindle" {
 			m.SetHeader("To", kindleMail)
 			attachPath = filepath.Join(outputPath, fmt.Sprintf("tmp-%s.%s", title, attach))
-			m.Attach(attachPath)
+			m.Attach(attachPath, gomail.Rename(mime.QEncoding.Encode("utf-8",
+				fmt.Sprintf("%s.%s", title, attach))))
 			defer os.Remove(attachPath)
 		} else {
 			// 这里偷懒直接替换文本
